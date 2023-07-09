@@ -2,12 +2,21 @@ use std::{env, sync::Arc};
 
 use dashmap::DashMap;
 use game_model::{get_new_id, GameId, GameState};
-use teloxide::{prelude::*, update_listeners::webhooks};
+use teloxide::{macros::BotCommands, prelude::*, update_listeners::webhooks};
 
 mod game_model;
 
-type JoinTable = Arc<DashMap<UserId, GameId>>;
+type RoomTable = Arc<DashMap<UserId, GameId>>;
 type StateTable = Arc<DashMap<GameId, GameState>>;
+
+#[derive(BotCommands, Clone)]
+#[command(rename_rule = "lowercase")]
+enum Command {
+    #[command(description = "Create new room")]
+    New,
+    #[command(description = "Join a room")]
+    Join(String),
+}
 
 #[tokio::main]
 async fn main() {
@@ -22,16 +31,24 @@ async fn main() {
         .await
         .expect("Couldn't setup webhook");
 
-    let join_table: JoinTable = JoinTable::new(DashMap::new());
+    let room_table: RoomTable = RoomTable::new(DashMap::new());
     let state_table: StateTable = StateTable::new(DashMap::new());
 
-    teloxide::repl_with_listener(
+    Command::repl_with_listener(
         bot,
         {
-            let join_table = join_table.clone();
+            let room_table = room_table.clone();
             let state_table = state_table.clone();
-            |bot: Bot, msg: Message| async move {
-                bot.send_message(msg.chat.id, get_new_id()).await?;
+            |bot: Bot, msg: Message, cmd: Command| async move {
+                match cmd {
+                    Command::New => {
+                        let new_id = get_new_id();
+
+                    }
+                    Command::Join(_) => {
+                        bot.send_message(msg.chat.id, "Join called").await?;
+                    }
+                };
                 Ok(())
             }
         },
