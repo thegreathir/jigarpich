@@ -35,7 +35,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2c99f64d1e06488f620f932677e24bc6e2897582980441ae90a671415bd7ec2f"
 dependencies = [
  "cfg-if",
- "getrandom",
  "once_cell",
  "version_check",
 ]
@@ -857,7 +856,7 @@ dependencies = [
  "dashmap",
  "log",
  "pretty_env_logger",
- "random_word",
+ "rand",
  "teloxide",
  "tokio",
 ]
@@ -1272,20 +1271,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 dependencies = [
  "getrandom",
-]
-
-[[package]]
-name = "random_word"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e83a2cf05929e255b936b543278a1a4c3eb6cce684239c9e2440f346036ad8b5"
-dependencies = [
- "ahash 0.8.3",
- "miniz_oxide",
- "once_cell",
- "paste",
- "rand",
- "unicase",
 ]
 
 [[package]]

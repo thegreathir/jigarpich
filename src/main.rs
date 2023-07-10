@@ -1,13 +1,12 @@
 use std::{env, sync::Arc};
 
 use dashmap::DashMap;
-use game_model::{get_new_id, GameId, GameState};
+use room::{get_new_id, Room, RoomId};
 use teloxide::{macros::BotCommands, prelude::*, update_listeners::webhooks};
 
-mod game_model;
+mod room;
 
-type RoomTable = Arc<DashMap<UserId, GameId>>;
-type StateTable = Arc<DashMap<GameId, GameState>>;
+type Rooms = Arc<DashMap<RoomId, Room>>;
 
 #[derive(BotCommands, Clone)]
 #[command(rename_rule = "lowercase")]
@@ -15,7 +14,7 @@ enum Command {
     #[command(description = "Create new room")]
     New,
     #[command(description = "Join a room")]
-    Join(String),
+    Join(u32),
 }
 
 #[tokio::main]
@@ -31,22 +30,52 @@ async fn main() {
         .await
         .expect("Couldn't setup webhook");
 
-    let room_table: RoomTable = RoomTable::new(DashMap::new());
-    let state_table: StateTable = StateTable::new(DashMap::new());
+    let rooms: Rooms = Rooms::new(DashMap::new());
 
     Command::repl_with_listener(
         bot,
-        {
-            let room_table = room_table.clone();
-            let state_table = state_table.clone();
-            |bot: Bot, msg: Message, cmd: Command| async move {
+        move |bot: Bot, msg: Message, cmd: Command| {
+            let rooms = rooms.clone();
+            async move {
                 match cmd {
                     Command::New => {
                         let new_id = get_new_id();
-
+                        rooms.insert(new_id, Room::new());
+                        bot.send_message(
+                            msg.chat.id,
+                            "Room created! Forward following message join:",
+                        )
+                        .await?;
+                        bot.send_message(msg.chat.id, format!("/join {}", new_id.0))
+                            .await?;
                     }
-                    Command::Join(_) => {
-                        bot.send_message(msg.chat.id, "Join called").await?;
+                    Command::Join(room_id) => {
+                        if let Some(mut room) = rooms.get_mut(&RoomId(room_id)) {
+                            if let Some(user) = msg.from() {
+                                match room.join(user.clone()) {
+                                    Ok(others) => {
+                                        for other in others {
+                                            bot.send_message(
+                                                other,
+                                                format!("{} joined to room", user.full_name()),
+                                            )
+                                            .await?;
+                                        }
+                                    }
+                                    Err(room::GameLogicError::FullRoom) => {
+                                        bot.send_message(msg.chat.id, "Room is full! Sorry :(")
+                                            .await?;
+                                    }
+                                    Err(room::GameLogicError::AlreadyJoined) => {
+                                        bot.send_message(msg.chat.id, "You've already joined!")
+                                            .await?;
+                                    }
+                                }
+                            }
+                        } else {
+                            bot.send_message(msg.chat.id, "Room number is wrong!")
+                                .await?;
+                        }
                     }
                 };
                 Ok(())
