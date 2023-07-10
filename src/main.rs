@@ -62,14 +62,11 @@ async fn main() {
                                             .await?;
                                         }
                                     }
-                                    Err(room::GameLogicError::FullRoom) => {
-                                        bot.send_message(msg.chat.id, "Room is full! Sorry :(")
-                                            .await?;
-                                    }
                                     Err(room::GameLogicError::AlreadyJoined) => {
                                         bot.send_message(msg.chat.id, "You've already joined!")
                                             .await?;
                                     }
+                                    Err(_) => {}
                                 }
                             }
                         } else {
