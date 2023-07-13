@@ -1,4 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    error::Error,
+};
 
 use rand::Rng;
 use teloxide::types::{User, UserId};
@@ -7,10 +10,19 @@ pub fn get_new_id() -> RoomId {
     RoomId(rand::thread_rng().gen_range(10_000..=99_999))
 }
 
+pub fn create_team_choice_data(room_id: u32, team_index: usize) -> String {
+    format!("{} {}", room_id, team_index)
+}
+
+pub fn parse_team_choice_data(data: String) -> Result<(RoomId, usize), Box<dyn Error>> {
+    let parsed = sscanf::sscanf!(data, "{} {}", u32, usize)?;
+    Ok((RoomId(parsed.0), parsed.1))
+}
+
 pub fn get_teams(number_of_teams: usize) -> Vec<String> {
-    (0..number_of_teams).map(|n| {
-        format!("Team {}", n + 1)
-    }).collect()
+    (0..number_of_teams)
+        .map(|n| format!("Team {}", n + 1))
+        .collect()
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -46,7 +58,11 @@ impl Room {
         }
     }
 
-    pub fn join_team(&mut self, user_id: UserId, team_index: usize) -> Result<Vec<UserId>, GameLogicError> {
+    pub fn join_team(
+        &mut self,
+        user_id: UserId,
+        team_index: usize,
+    ) -> Result<Vec<UserId>, GameLogicError> {
         if !self.players.contains_key(&user_id) {
             Err(GameLogicError::NotJoinedToRoom)
         } else {

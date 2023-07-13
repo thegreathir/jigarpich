@@ -1,7 +1,7 @@
-use std::{env, fmt::format, sync::Arc};
+use std::{env, sync::Arc};
 
 use dashmap::DashMap;
-use room::{get_new_id, get_teams, Room, RoomId};
+use room::{create_team_choice_data, get_new_id, get_teams, Room, RoomId};
 use teloxide::{
     macros::BotCommands,
     prelude::*,
@@ -37,21 +37,25 @@ async fn main() {
 
     let rooms: Rooms = Rooms::new(DashMap::new());
 
-    Command::repl_with_listener(
-        bot,
-        move |bot: Bot, msg: Message, cmd: Command| {
-            let rooms = rooms.clone();
-            async move {
-                answer_command(bot, msg, cmd, rooms).await?;
-                Ok(())
-            }
-        },
-        listener,
-    )
-    .await;
+    let command_handler = Update::filter_message()
+        .filter_command::<Command>()
+        .endpoint(answer_command);
+    let cb_query_handler = Update::filter_callback_query().endpoint(handle_cb_query);
+
+    let handler = dptree::entry().branch(cb_query_handler).branch(command_handler);
+
+    Dispatcher::builder(bot, handler)
+        .dependencies(dptree::deps![rooms])
+        .enable_ctrlc_handler()
+        .build()
+        .dispatch_with_listener(
+            listener,
+            LoggingErrorHandler::with_custom_text("An error from the update listener"),
+        )
+        .await
 }
 
-async fn answer_command(bot: Bot, msg: Message, cmd: Command, rooms: Rooms) -> ResponseResult<()> {
+async fn answer_command(bot: Bot, rooms: Rooms, msg: Message, cmd: Command) -> ResponseResult<()> {
     match cmd {
         Command::New(number_of_teams) => {
             handle_new_command(bot, msg, rooms, number_of_teams).await?;
@@ -60,6 +64,11 @@ async fn answer_command(bot: Bot, msg: Message, cmd: Command, rooms: Rooms) -> R
             handle_join_command(bot, msg, rooms, room_id).await?;
         }
     };
+    Ok(())
+}
+
+async fn handle_cb_query(bot: Bot, rooms: Rooms, q: CallbackQuery) -> ResponseResult<()> {
+    println!("Callback query update");
     Ok(())
 }
 
@@ -104,7 +113,10 @@ async fn handle_join_command(
                             .into_iter()
                             .enumerate()
                             .map(|(idx, team)| {
-                                InlineKeyboardButton::callback(team, format!("{} {}", room_id, idx))
+                                InlineKeyboardButton::callback(
+                                    team,
+                                    create_team_choice_data(room_id, idx),
+                                )
                             });
 
                     bot.send_message(msg.chat.id, "Choose your team")
