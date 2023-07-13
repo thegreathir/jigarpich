@@ -1,8 +1,13 @@
-use std::{env, sync::Arc};
+use std::{env, fmt::format, sync::Arc};
 
 use dashmap::DashMap;
-use room::{get_new_id, Room, RoomId};
-use teloxide::{macros::BotCommands, prelude::*, update_listeners::webhooks};
+use room::{get_new_id, get_teams, Room, RoomId};
+use teloxide::{
+    macros::BotCommands,
+    prelude::*,
+    types::{InlineKeyboardButton, InlineKeyboardMarkup},
+    update_listeners::webhooks,
+};
 
 mod room;
 
@@ -12,7 +17,7 @@ type Rooms = Arc<DashMap<RoomId, Room>>;
 #[command(rename_rule = "lowercase")]
 enum Command {
     #[command(description = "Create new room")]
-    New,
+    New(usize),
     #[command(description = "Join a room")]
     Join(u32),
 }
@@ -38,9 +43,18 @@ async fn main() {
             let rooms = rooms.clone();
             async move {
                 match cmd {
-                    Command::New => {
+                    Command::New(number_of_teams) => {
+                        if !(2..=4).contains(&number_of_teams) {
+                            bot.send_message(
+                                msg.chat.id,
+                                "Number of teams should be between 2 and 4",
+                            )
+                            .await?;
+                            return Ok(());
+                        }
+
                         let new_id = get_new_id();
-                        rooms.insert(new_id, Room::new());
+                        rooms.insert(new_id, Room::new(number_of_teams));
                         bot.send_message(
                             msg.chat.id,
                             "Room created! Forward following message join:",
@@ -53,7 +67,7 @@ async fn main() {
                         if let Some(mut room) = rooms.get_mut(&RoomId(room_id)) {
                             if let Some(user) = msg.from() {
                                 match room.join(user.clone()) {
-                                    Ok(others) => {
+                                    Ok((others, number_of_teams)) => {
                                         for other in others {
                                             bot.send_message(
                                                 other,
@@ -61,6 +75,20 @@ async fn main() {
                                             )
                                             .await?;
                                         }
+
+                                        let teams = get_teams(number_of_teams)
+                                            .into_iter()
+                                            .enumerate()
+                                            .map(|(idx, team)| {
+                                                InlineKeyboardButton::callback(
+                                                    team,
+                                                    format!("{} {}", room_id, idx),
+                                                )
+                                            });
+
+                                        bot.send_message(msg.chat.id, "Choose your team")
+                                            .reply_markup(InlineKeyboardMarkup::new([teams]))
+                                            .await?;
                                     }
                                     Err(room::GameLogicError::AlreadyJoined) => {
                                         bot.send_message(msg.chat.id, "You've already joined!")
