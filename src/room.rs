@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    error::Error,
-};
+use std::collections::{HashMap, HashSet};
 
 use rand::Rng;
 use teloxide::types::{User, UserId};
@@ -14,9 +11,9 @@ pub fn create_team_choice_data(room_id: u32, team_index: usize) -> String {
     format!("{} {}", room_id, team_index)
 }
 
-pub fn parse_team_choice_data(data: String) -> Result<(RoomId, usize), Box<dyn Error>> {
-    let parsed = sscanf::sscanf!(data, "{} {}", u32, usize)?;
-    Ok((RoomId(parsed.0), parsed.1))
+pub fn parse_team_choice_data(data: String) -> Option<(RoomId, usize)> {
+    let parsed = sscanf::sscanf!(data, "{} {}", u32, usize).ok()?;
+    Some((RoomId(parsed.0), parsed.1))
 }
 
 pub fn get_teams(number_of_teams: usize) -> Vec<String> {

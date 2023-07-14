@@ -70,11 +70,19 @@ async fn answer_command(bot: Bot, rooms: Rooms, msg: Message, cmd: Command) -> R
 }
 
 async fn handle_cb_query(bot: Bot, rooms: Rooms, q: CallbackQuery) -> ResponseResult<()> {
-    if let Some(data) = q.data {
-        if let Ok((room_id, team_index)) = parse_team_choice_data(data) {
-            handle_team_join(bot, rooms, room_id, q.from, team_index).await?;
-        }
-    }
+    let Some(data) = q.data else {
+        return Ok(());
+    };
+
+    let Some((room_id, team_index)) = parse_team_choice_data(data) else {
+        return Ok(());
+    };
+
+    let Some(mut room) = rooms.get_mut(&room_id) else {
+        return Ok(());
+    };
+
+    handle_team_join(bot, &mut room, q.from, team_index).await?;
     Ok(())
 }
 
@@ -105,51 +113,62 @@ async fn handle_join_command(
     rooms: Rooms,
     room_id: u32,
 ) -> ResponseResult<()> {
-    if let Some(mut room) = rooms.get_mut(&RoomId(room_id)) {
-        if let Some(user) = msg.from() {
-            match room.join(user.clone()) {
-                Ok((others, number_of_teams)) => {
-                    for other in others {
-                        bot.send_message(other, format!("{} joined to room", user.full_name()))
-                            .await?;
-                    }
-
-                    let teams =
-                        get_teams(number_of_teams)
-                            .into_iter()
-                            .enumerate()
-                            .map(|(idx, team)| {
-                                InlineKeyboardButton::callback(
-                                    team,
-                                    create_team_choice_data(room_id, idx),
-                                )
-                            });
-
-                    bot.send_message(msg.chat.id, "Choose your team")
-                        .reply_markup(InlineKeyboardMarkup::new([teams]))
-                        .await?;
-                }
-                Err(room::GameLogicError::AlreadyJoined) => {
-                    bot.send_message(msg.chat.id, "You've already joined!")
-                        .await?;
-                }
-                Err(_) => {}
-            }
-        }
-    } else {
+    let Some(mut room) = rooms.get_mut(&RoomId(room_id)) else {
         bot.send_message(msg.chat.id, "Room number is wrong!")
             .await?;
+        return Ok(());
+    };
+    let Some(user) = msg.from() else {
+        return Ok(());
+    };
+    match room.join(user.clone()) {
+        Ok((others, number_of_teams)) => {
+            broadcast(others, &bot, format!("{} joined to room", user.full_name())).await?;
+
+            let teams = get_teams(number_of_teams)
+                .into_iter()
+                .enumerate()
+                .map(|(idx, team)| {
+                    InlineKeyboardButton::callback(team, create_team_choice_data(room_id, idx))
+                });
+
+            bot.send_message(msg.chat.id, "Choose your team")
+                .reply_markup(InlineKeyboardMarkup::new([teams]))
+                .await?;
+        }
+        Err(room::GameLogicError::AlreadyJoined) => {
+            bot.send_message(msg.chat.id, "You've already joined!")
+                .await?;
+        }
+        Err(_) => {}
+    }
+    Ok(())
+}
+
+async fn broadcast(
+    others: Vec<UserId>,
+    bot: &Bot,
+    msg: String,
+) -> Result<(), teloxide::RequestError> {
+    for other in others {
+        bot.send_message(other, msg.as_str()).await?;
     }
     Ok(())
 }
 
 async fn handle_team_join(
     bot: Bot,
-    rooms: Rooms,
-    room_id: RoomId,
+    room: &mut Room,
     user: User,
     team_index: usize,
 ) -> ResponseResult<()> {
-    if let Some(mut room) = rooms.get_mut(&room_id) {}
+    if let Ok(others) = room.join_team(user.id, team_index) {
+        broadcast(
+            others,
+            &bot,
+            format!("{} has joined to Team {}", user.full_name(), team_index + 1),
+        )
+        .await?;
+    }
     Ok(())
 }
