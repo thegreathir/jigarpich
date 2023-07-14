@@ -1,11 +1,11 @@
 use std::{env, sync::Arc};
 
 use dashmap::DashMap;
-use room::{create_team_choice_data, get_new_id, get_teams, Room, RoomId};
+use room::{create_team_choice_data, get_new_id, get_teams, parse_team_choice_data, Room, RoomId};
 use teloxide::{
     macros::BotCommands,
     prelude::*,
-    types::{InlineKeyboardButton, InlineKeyboardMarkup},
+    types::{InlineKeyboardButton, InlineKeyboardMarkup, User},
     update_listeners::webhooks,
 };
 
@@ -42,7 +42,9 @@ async fn main() {
         .endpoint(answer_command);
     let cb_query_handler = Update::filter_callback_query().endpoint(handle_cb_query);
 
-    let handler = dptree::entry().branch(cb_query_handler).branch(command_handler);
+    let handler = dptree::entry()
+        .branch(cb_query_handler)
+        .branch(command_handler);
 
     Dispatcher::builder(bot, handler)
         .dependencies(dptree::deps![rooms])
@@ -68,7 +70,11 @@ async fn answer_command(bot: Bot, rooms: Rooms, msg: Message, cmd: Command) -> R
 }
 
 async fn handle_cb_query(bot: Bot, rooms: Rooms, q: CallbackQuery) -> ResponseResult<()> {
-    println!("Callback query update");
+    if let Some(data) = q.data {
+        if let Ok((room_id, team_index)) = parse_team_choice_data(data) {
+            handle_team_join(bot, rooms, room_id, q.from, team_index).await?;
+        }
+    }
     Ok(())
 }
 
@@ -134,5 +140,16 @@ async fn handle_join_command(
         bot.send_message(msg.chat.id, "Room number is wrong!")
             .await?;
     }
+    Ok(())
+}
+
+async fn handle_team_join(
+    bot: Bot,
+    rooms: Rooms,
+    room_id: RoomId,
+    user: User,
+    team_index: usize,
+) -> ResponseResult<()> {
+    if let Some(mut room) = rooms.get_mut(&room_id) {}
     Ok(())
 }
