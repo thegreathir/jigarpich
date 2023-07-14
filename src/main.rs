@@ -1,7 +1,7 @@
 use std::{env, sync::Arc};
 
 use dashmap::DashMap;
-use room::{create_team_choice_data, get_new_id, get_teams, parse_team_choice_data, Room, RoomId};
+use room::{get_new_id, get_teams, parse_command, serialize_command, Room, RoomId};
 use teloxide::{
     macros::BotCommands,
     prelude::*,
@@ -10,6 +10,8 @@ use teloxide::{
 };
 
 mod room;
+
+mod words;
 
 type Rooms = Arc<DashMap<RoomId, Room>>;
 
@@ -74,7 +76,7 @@ async fn handle_cb_query(bot: Bot, rooms: Rooms, q: CallbackQuery) -> ResponseRe
         return Ok(());
     };
 
-    let Some((room_id, team_index)) = parse_team_choice_data(data) else {
+    let Some((room_id, command)) = parse_command(data) else {
         return Ok(());
     };
 
@@ -82,7 +84,13 @@ async fn handle_cb_query(bot: Bot, rooms: Rooms, q: CallbackQuery) -> ResponseRe
         return Ok(());
     };
 
-    handle_team_join(bot, &mut room, q.from, team_index).await?;
+    match command {
+        room::CbQueryCommand::Join { team_index } => {
+            handle_team_join(bot, &mut room, q.from, team_index).await?
+        }
+        room::CbQueryCommand::GetTeams => todo!(),
+        room::CbQueryCommand::Play => todo!(),
+    };
     Ok(())
 }
 
@@ -129,11 +137,25 @@ async fn handle_join_command(
                 .into_iter()
                 .enumerate()
                 .map(|(idx, team)| {
-                    InlineKeyboardButton::callback(team, create_team_choice_data(room_id, idx))
-                });
+                    InlineKeyboardButton::callback(
+                        team,
+                        serialize_command(room_id, room::CbQueryCommand::Join { team_index: idx }),
+                    )
+                })
+                .collect();
 
             bot.send_message(msg.chat.id, "Choose your team")
-                .reply_markup(InlineKeyboardMarkup::new([teams]))
+                .reply_markup(InlineKeyboardMarkup::new([
+                    teams,
+                    vec![InlineKeyboardButton::callback(
+                        "Show Teams",
+                        serialize_command(room_id, room::CbQueryCommand::GetTeams),
+                    )],
+                    vec![InlineKeyboardButton::callback(
+                        "Play",
+                        serialize_command(room_id, room::CbQueryCommand::Play),
+                    )],
+                ]))
                 .await?;
         }
         Err(room::GameLogicError::AlreadyJoined) => {
