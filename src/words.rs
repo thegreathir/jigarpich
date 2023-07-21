@@ -13,7 +13,7 @@ enum Complexity {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct Word {
-    text: String,
+    pub text: String,
     complexity: Complexity,
 }
 

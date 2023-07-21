@@ -1,4 +1,4 @@
-use std::{env, sync::Arc};
+use std::{collections::BTreeSet, env, sync::Arc};
 
 use callback_query_command::{parse_command, serialize_command, CbQueryCommand};
 use dashmap::DashMap;
@@ -93,7 +93,8 @@ async fn handle_cb_query(bot: Bot, rooms: Rooms, q: CallbackQuery) -> ResponseRe
         }
         CbQueryCommand::GetTeams => handle_get_teams(bot, &room, q.from).await?,
         CbQueryCommand::Play => handle_play(bot, &mut room, room_id, q.from).await?,
-        CbQueryCommand::Start => todo!(),
+        CbQueryCommand::Start => handle_start_round(bot, &mut room, room_id).await?,
+        CbQueryCommand::Correct => todo!(),
     };
     Ok(())
 }
@@ -244,13 +245,37 @@ async fn handle_play(bot: Bot, room: &mut Room, room_id: RoomId, user: User) -> 
                 .await?;
         }
         Err(GameLogicError::NotBalancedTeams) => {
-            bot.send_message(
-                user.id,
-                "Teams are not balanced",
-            )
-            .await?;
+            bot.send_message(user.id, "Teams are not balanced").await?;
         }
         Err(_) => (),
+    }
+    Ok(())
+}
+
+async fn handle_start_round(bot: Bot, room: &mut Room, room_id: RoomId) -> ResponseResult<()> {
+    if let Ok(word_guess_try) = room.start_round() {
+        bot.send_message(word_guess_try.describing.id, word_guess_try.word.clone())
+            .reply_markup(InlineKeyboardMarkup::new([vec![
+                InlineKeyboardButton::callback(
+                    "✅",
+                    serialize_command(room_id, CbQueryCommand::Correct),
+                ),
+            ]]))
+            .await?;
+
+        bot.send_message(word_guess_try.guessing.id, "Try to guess the word")
+            .await?;
+
+        let mut players = BTreeSet::from_iter(room.get_all_players().into_iter());
+        players.remove(&word_guess_try.describing.id);
+        players.remove(&word_guess_try.guessing.id);
+
+        broadcast(
+            players.into_iter().collect(),
+            &bot,
+            word_guess_try.word.clone(),
+        )
+        .await?;
     }
     Ok(())
 }

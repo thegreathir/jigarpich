@@ -3,6 +3,11 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use rand::Rng;
 use teloxide::types::{User, UserId};
 
+use crate::words::{get_random_word, Word};
+
+pub const ROUNDS_COUNT: usize = 7;
+pub const ROUND_DURATION_IN_MINUTES: usize = 2;
+
 pub fn get_new_id() -> RoomId {
     RoomId(rand::thread_rng().gen_range(10_000..=99_999))
 }
@@ -129,6 +134,13 @@ impl PlayingTeam {
             self.second.clone()
         }
     }
+    fn get_guessing_player(&self) -> User {
+        if self.turn == 0 {
+            self.second.clone()
+        } else {
+            self.first.clone()
+        }
+    }
 }
 
 struct PlayingRoom {
@@ -161,11 +173,21 @@ impl PlayingRoom {
     fn get_describing_player(&self) -> User {
         self.teams[self.turn as usize].get_describing_player()
     }
+
+    fn get_guessing_player(&self) -> User {
+        self.teams[self.turn as usize].get_guessing_player()
+    }
 }
 
 pub enum Room {
     Lobby(NewRoom),
     Playing(PlayingRoom),
+}
+
+pub struct WordGuessTry {
+    pub word: String,
+    pub describing: User,
+    pub guessing: User,
 }
 
 impl Room {
@@ -231,5 +253,17 @@ impl Room {
             }
             Room::Playing(_) => Err(GameLogicError::AlreadyPlaying),
         }
+    }
+
+    pub fn start_round(&self) -> Result<WordGuessTry, GameLogicError> {
+        let Room::Playing(playing) = self else {
+            return Err(GameLogicError::IsNotPlaying);
+        };
+
+        Ok(WordGuessTry {
+            word: get_random_word().text.clone(),
+            describing: playing.get_describing_player(),
+            guessing: playing.get_guessing_player(),
+        })
     }
 }
