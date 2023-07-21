@@ -151,6 +151,7 @@ struct PlayingRoom {
 
 impl PlayingRoom {
     fn from(lobby: NewRoom) -> PlayingRoom {
+        // TODO: Shuffle teams
         PlayingRoom {
             teams: lobby
                 .teams
