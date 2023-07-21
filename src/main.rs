@@ -1,7 +1,8 @@
 use std::{env, sync::Arc};
 
+use callback_query_command::{parse_command, serialize_command, CbQueryCommand};
 use dashmap::DashMap;
-use room::{get_new_id, get_teams, parse_command, serialize_command, Room, RoomId};
+use room::{get_new_id, get_teams, Room, RoomId};
 use teloxide::{
     macros::BotCommands,
     prelude::*,
@@ -10,6 +11,8 @@ use teloxide::{
 };
 
 mod room;
+
+mod callback_query_command;
 
 mod words;
 
@@ -85,11 +88,11 @@ async fn handle_cb_query(bot: Bot, rooms: Rooms, q: CallbackQuery) -> ResponseRe
     };
 
     match command {
-        room::CbQueryCommand::Join { team_index } => {
+        CbQueryCommand::Join { team_index } => {
             handle_team_join(bot, &mut room, q.from, team_index).await?
         }
-        room::CbQueryCommand::GetTeams => todo!(),
-        room::CbQueryCommand::Play => todo!(),
+        CbQueryCommand::GetTeams => todo!(),
+        CbQueryCommand::Play => todo!(),
     };
     Ok(())
 }
@@ -139,7 +142,7 @@ async fn handle_join_command(
                 .map(|(idx, team)| {
                     InlineKeyboardButton::callback(
                         team,
-                        serialize_command(room_id, room::CbQueryCommand::Join { team_index: idx }),
+                        serialize_command(room_id, CbQueryCommand::Join { team_index: idx }),
                     )
                 })
                 .collect();
@@ -149,11 +152,11 @@ async fn handle_join_command(
                     teams,
                     vec![InlineKeyboardButton::callback(
                         "Show Teams",
-                        serialize_command(room_id, room::CbQueryCommand::GetTeams),
+                        serialize_command(room_id, CbQueryCommand::GetTeams),
                     )],
                     vec![InlineKeyboardButton::callback(
                         "Play",
-                        serialize_command(room_id, room::CbQueryCommand::Play),
+                        serialize_command(room_id, CbQueryCommand::Play),
                     )],
                 ]))
                 .await?;
