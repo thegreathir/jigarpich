@@ -91,7 +91,7 @@ async fn handle_cb_query(bot: Bot, rooms: Rooms, q: CallbackQuery) -> ResponseRe
         CbQueryCommand::Join { team_index } => {
             handle_team_join(bot, &mut room, q.from, team_index).await?
         }
-        CbQueryCommand::GetTeams => todo!(),
+        CbQueryCommand::GetTeams => handle_get_teams(bot, &room, q.from).await?,
         CbQueryCommand::Play => todo!(),
     };
     Ok(())
@@ -165,6 +165,10 @@ async fn handle_join_command(
             bot.send_message(msg.chat.id, "You've already joined!")
                 .await?;
         }
+        Err(room::GameLogicError::JoinAfterPlay) => {
+            bot.send_message(msg.chat.id, "Game is started. You can't join anymore!")
+                .await?;
+        }
         Err(_) => {}
     }
     Ok(())
@@ -187,13 +191,30 @@ async fn handle_team_join(
     user: User,
     team_index: usize,
 ) -> ResponseResult<()> {
-    if let Ok(others) = room.join_team(user.id, team_index) {
-        broadcast(
-            others,
-            &bot,
-            format!("{} has joined to Team {}", user.full_name(), team_index + 1),
-        )
-        .await?;
+    match room.join_team(user.id, team_index) {
+        Ok(others) => {
+            broadcast(
+                others,
+                &bot,
+                format!("{} has joined to Team {}", user.full_name(), team_index + 1),
+            )
+            .await?;
+        }
+        Err(room::GameLogicError::TeamChangeAfterPlay) => {
+            bot.send_message(
+                user.id,
+                "Game is started. You can't change your team anymore!",
+            )
+            .await?;
+        }
+        Err(_) => (),
+    }
+    Ok(())
+}
+
+async fn handle_get_teams(bot: Bot, room: &Room, user: User) -> ResponseResult<()> {
+    if let Ok(teams) = room.get_teams() {
+        bot.send_message(user.id, teams).await?;
     }
     Ok(())
 }
