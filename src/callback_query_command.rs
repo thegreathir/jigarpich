@@ -4,13 +4,15 @@ pub enum CbQueryCommand {
     Join { team_index: usize },
     GetTeams,
     Play,
+    Start,
 }
 
-pub fn serialize_command(room_id: u32, query_command: CbQueryCommand) -> String {
+pub fn serialize_command(room_id: RoomId, query_command: CbQueryCommand) -> String {
     match query_command {
-        CbQueryCommand::Join { team_index } => format!("join {} {}", room_id, team_index),
-        CbQueryCommand::GetTeams => format!("get_teams {}", room_id),
-        CbQueryCommand::Play => format!("play {}", room_id),
+        CbQueryCommand::Join { team_index } => format!("join {} {}", room_id.0, team_index),
+        CbQueryCommand::GetTeams => format!("get_teams {}", room_id.0),
+        CbQueryCommand::Play => format!("play {}", room_id.0),
+        CbQueryCommand::Start => format!("start {}", room_id.0),
     }
 }
 
@@ -37,6 +39,7 @@ pub fn parse_command(data: String) -> Option<(RoomId, CbQueryCommand)> {
         }
         "get_teams" => Some((room_id, CbQueryCommand::GetTeams)),
         "play" => Some((room_id, CbQueryCommand::Play)),
+        "start" => Some((room_id, CbQueryCommand::Start)),
         _ => None,
     }
 }

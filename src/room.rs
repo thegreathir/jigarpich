@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use rand::Rng;
 use teloxide::types::{User, UserId};
@@ -24,16 +24,20 @@ pub enum GameLogicError {
     NotJoinedToRoom,
     JoinAfterPlay,
     TeamChangeAfterPlay,
+    AlreadyPlaying,
+    NotBalancedTeams,
+    IsNotPlaying,
 }
 
-pub struct NewRoom {
+#[derive(Default)]
+struct NewRoom {
     players: HashMap<UserId, User>,
     number_of_teams: usize,
     teams: Vec<HashSet<UserId>>,
 }
 
 impl NewRoom {
-    pub fn new(number_of_teams: usize) -> Self {
+    fn new(number_of_teams: usize) -> Self {
         NewRoom {
             players: HashMap::new(),
             teams: vec![HashSet::new(); number_of_teams],
@@ -41,7 +45,7 @@ impl NewRoom {
         }
     }
 
-    pub fn join(&mut self, user: User) -> Result<(Vec<UserId>, usize), GameLogicError> {
+    fn join(&mut self, user: User) -> Result<(Vec<UserId>, usize), GameLogicError> {
         if let std::collections::hash_map::Entry::Vacant(e) = self.players.entry(user.id) {
             e.insert(user);
             Ok((self.players.keys().cloned().collect(), self.number_of_teams))
@@ -50,7 +54,7 @@ impl NewRoom {
         }
     }
 
-    pub fn join_team(
+    fn join_team(
         &mut self,
         user_id: UserId,
         team_index: usize,
@@ -68,8 +72,9 @@ impl NewRoom {
         }
     }
 
-    pub fn get_teams(&self) -> Result<String, GameLogicError> {
-        let result = self.teams
+    fn get_teams(&self) -> Result<String, GameLogicError> {
+        let result = self
+            .teams
             .iter()
             .enumerate()
             .fold("".to_owned(), |mut res, (i, members)| {
@@ -88,19 +93,74 @@ impl NewRoom {
 
         Ok(result)
     }
+
+    fn check_teams_ready(&self) -> Result<(), GameLogicError> {
+        // TODO: Check if teams contain wrong user ID
+        if self
+            .teams
+            .iter()
+            .fold(BTreeSet::<usize>::new(), |mut res, members| {
+                res.insert(members.len());
+                res
+            })
+            .into_iter()
+            .collect::<Vec<_>>()
+            != vec![2]
+        {
+            return Err(GameLogicError::NotBalancedTeams);
+        }
+
+        Ok(())
+    }
 }
 
-pub struct PlayingTeam {
+struct PlayingTeam {
     first: User,
     second: User,
     time: f32,
     turn: u8,
 }
 
-pub struct PlayingRoom {
+impl PlayingTeam {
+    fn get_describing_player(&self) -> User {
+        if self.turn == 0 {
+            self.first.clone()
+        } else {
+            self.second.clone()
+        }
+    }
+}
+
+struct PlayingRoom {
     teams: Vec<PlayingTeam>,
     turn: u8,
     round: u8,
+}
+
+impl PlayingRoom {
+    fn from(lobby: NewRoom) -> PlayingRoom {
+        PlayingRoom {
+            teams: lobby
+                .teams
+                .into_iter()
+                .map(|team| {
+                    let team: Vec<_> = team.into_iter().collect();
+                    PlayingTeam {
+                        first: lobby.players.get(team.get(0).unwrap()).unwrap().to_owned(),
+                        second: lobby.players.get(team.get(1).unwrap()).unwrap().to_owned(),
+                        time: 0.0,
+                        turn: 0,
+                    }
+                })
+                .collect(),
+            turn: 0,
+            round: 0,
+        }
+    }
+
+    fn get_describing_player(&self) -> User {
+        self.teams[self.turn as usize].get_describing_player()
+    }
 }
 
 pub enum Room {
@@ -134,7 +194,42 @@ impl Room {
     pub fn get_teams(&self) -> Result<String, GameLogicError> {
         match self {
             Room::Lobby(lobby) => lobby.get_teams(),
-            Room::Playing(_) => todo!(),
+            // TODO What to do?
+            Room::Playing(_) => Ok("".to_owned()),
+        }
+    }
+
+    fn get_playing(&self) -> Result<&PlayingRoom, GameLogicError> {
+        match self {
+            Room::Lobby(_) => Err(GameLogicError::IsNotPlaying),
+            Room::Playing(playing) => Ok(playing),
+        }
+    }
+
+    pub fn get_all_players(&self) -> Vec<UserId> {
+        match self {
+            Room::Lobby(lobby) => lobby.players.clone().into_keys().collect::<Vec<_>>(),
+            Room::Playing(playing) => playing
+                .teams
+                .iter()
+                .map(|team| vec![team.first.id, team.second.id])
+                .collect::<Vec<Vec<_>>>()
+                .concat(),
+        }
+    }
+
+    pub fn play(&mut self) -> Result<User, GameLogicError> {
+        match self {
+            Room::Lobby(new_game) => {
+                new_game.check_teams_ready()?;
+
+                let playing = PlayingRoom::from(std::mem::take(new_game));
+
+                *self = Room::Playing(playing);
+
+                Ok(self.get_playing().unwrap().get_describing_player())
+            }
+            Room::Playing(_) => Err(GameLogicError::AlreadyPlaying),
         }
     }
 }

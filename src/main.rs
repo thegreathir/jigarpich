@@ -2,7 +2,7 @@ use std::{env, sync::Arc};
 
 use callback_query_command::{parse_command, serialize_command, CbQueryCommand};
 use dashmap::DashMap;
-use room::{get_new_id, get_teams, Room, RoomId};
+use room::{get_new_id, get_teams, GameLogicError, Room, RoomId};
 use teloxide::{
     macros::BotCommands,
     prelude::*,
@@ -92,7 +92,8 @@ async fn handle_cb_query(bot: Bot, rooms: Rooms, q: CallbackQuery) -> ResponseRe
             handle_team_join(bot, &mut room, q.from, team_index).await?
         }
         CbQueryCommand::GetTeams => handle_get_teams(bot, &room, q.from).await?,
-        CbQueryCommand::Play => todo!(),
+        CbQueryCommand::Play => handle_play(bot, &mut room, room_id, q.from).await?,
+        CbQueryCommand::Start => todo!(),
     };
     Ok(())
 }
@@ -124,7 +125,8 @@ async fn handle_join_command(
     rooms: Rooms,
     room_id: u32,
 ) -> ResponseResult<()> {
-    let Some(mut room) = rooms.get_mut(&RoomId(room_id)) else {
+    let room_id = RoomId(room_id);
+    let Some(mut room) = rooms.get_mut(&room_id) else {
         bot.send_message(msg.chat.id, "Room number is wrong!")
             .await?;
         return Ok(());
@@ -215,6 +217,40 @@ async fn handle_team_join(
 async fn handle_get_teams(bot: Bot, room: &Room, user: User) -> ResponseResult<()> {
     if let Ok(teams) = room.get_teams() {
         bot.send_message(user.id, teams).await?;
+    }
+    Ok(())
+}
+
+async fn handle_play(bot: Bot, room: &mut Room, room_id: RoomId, user: User) -> ResponseResult<()> {
+    match room.play() {
+        Ok(describing_player) => {
+            broadcast(
+                room.get_all_players(),
+                &bot,
+                format!(
+                    "Game is started. {} should start the first round!",
+                    describing_player.full_name()
+                ),
+            )
+            .await?;
+
+            bot.send_message(describing_player.id, "Start round")
+                .reply_markup(InlineKeyboardMarkup::new([vec![
+                    InlineKeyboardButton::callback(
+                        "Start",
+                        serialize_command(room_id, CbQueryCommand::Start),
+                    ),
+                ]]))
+                .await?;
+        }
+        Err(GameLogicError::NotBalancedTeams) => {
+            bot.send_message(
+                user.id,
+                "Teams are not balanced",
+            )
+            .await?;
+        }
+        Err(_) => (),
     }
     Ok(())
 }
