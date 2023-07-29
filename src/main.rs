@@ -2,7 +2,7 @@ use std::{collections::BTreeSet, env, sync::Arc, time::Duration};
 
 use callback_query_command::{parse_command, serialize_command, CbQueryCommand};
 use dashmap::DashMap;
-use room::{get_new_id, get_teams, GameLogicError, Room, RoomId};
+use room::{get_new_id, get_teams, GameLogicError, Room, RoomId, SKIP_COOL_DOWN_IN_SECONDS};
 use teloxide::{
     macros::BotCommands,
     prelude::*,
@@ -94,8 +94,8 @@ async fn handle_cb_query(bot: Bot, rooms: Rooms, q: CallbackQuery) -> ResponseRe
         CbQueryCommand::GetTeams => handle_get_teams(bot, &room, q.from).await?,
         CbQueryCommand::Play => handle_play(bot, &mut room, room_id, q.from).await?,
         CbQueryCommand::Start => handle_start_round(bot, &mut room, room_id).await?,
-        CbQueryCommand::Correct => todo!(),
-        CbQueryCommand::Skip => todo!(),
+        CbQueryCommand::Correct => handle_correct(bot, &mut room, room_id).await?,
+        CbQueryCommand::Skip => handle_skip(bot, &mut room, room_id).await?,
     };
     Ok(())
 }
@@ -255,52 +255,72 @@ async fn handle_play(bot: Bot, room: &mut Room, room_id: RoomId, user: User) -> 
 
 async fn handle_start_round(bot: Bot, room: &mut Room, room_id: RoomId) -> ResponseResult<()> {
     if let Ok(word_guess_try) = room.start_round() {
-        let sent_word = bot
-            .send_message(word_guess_try.describing.id, word_guess_try.word.clone())
+        send_new_word(bot, word_guess_try, room_id, room).await?;
+    }
+    Ok(())
+}
+
+async fn send_new_word(
+    bot: Bot,
+    word_guess_try: room::WordGuessTry,
+    room_id: RoomId,
+    room: &mut Room,
+) -> ResponseResult<()> {
+    let sent_word = bot
+        .send_message(word_guess_try.describing.id, word_guess_try.word.clone())
+        .reply_markup(InlineKeyboardMarkup::new([vec![
+            InlineKeyboardButton::callback(
+                "✅",
+                serialize_command(room_id, CbQueryCommand::Correct),
+            ),
+        ]]))
+        .await?;
+    bot.send_message(word_guess_try.guessing.id, "Try to guess the word")
+        .await?;
+    let mut players = BTreeSet::from_iter(room.get_all_players().into_iter());
+    players.remove(&word_guess_try.describing.id);
+    players.remove(&word_guess_try.guessing.id);
+    broadcast(
+        players.into_iter().collect(),
+        &bot,
+        word_guess_try.word.clone(),
+    )
+    .await?;
+    tokio::task::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(SKIP_COOL_DOWN_IN_SECONDS as u64)).await;
+
+        if (bot
+            .edit_message_reply_markup(sent_word.chat.id, sent_word.id)
             .reply_markup(InlineKeyboardMarkup::new([vec![
                 InlineKeyboardButton::callback(
                     "✅",
                     serialize_command(room_id, CbQueryCommand::Correct),
                 ),
+                InlineKeyboardButton::callback(
+                    "Skip",
+                    serialize_command(room_id, CbQueryCommand::Skip),
+                ),
             ]]))
-            .await?;
+            .await)
+            .is_err()
+        {
 
-        bot.send_message(word_guess_try.guessing.id, "Try to guess the word")
-            .await?;
+            // TODO: Log if failed
+        }
+    });
+    Ok(())
+}
 
-        let mut players = BTreeSet::from_iter(room.get_all_players().into_iter());
-        players.remove(&word_guess_try.describing.id);
-        players.remove(&word_guess_try.guessing.id);
+async fn handle_correct(bot: Bot, room: &mut Room, room_id: RoomId) -> ResponseResult<()> {
+    if let Ok(word_guess_try) = room.correct() {
+        send_new_word(bot, word_guess_try, room_id, room).await?;
+    }
+    Ok(())
+}
 
-        broadcast(
-            players.into_iter().collect(),
-            &bot,
-            word_guess_try.word.clone(),
-        )
-        .await?;
-
-        tokio::task::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(10)).await;
-
-            if (bot
-                .edit_message_reply_markup(sent_word.chat.id, sent_word.id)
-                .reply_markup(InlineKeyboardMarkup::new([vec![
-                    InlineKeyboardButton::callback(
-                        "✅",
-                        serialize_command(room_id, CbQueryCommand::Correct),
-                    ),
-                    InlineKeyboardButton::callback(
-                        "Skip",
-                        serialize_command(room_id, CbQueryCommand::Skip),
-                    ),
-                ]]))
-                .await)
-                .is_err()
-            {
-
-                // TODO: Log if failed
-            }
-        });
+async fn handle_skip(bot: Bot, room: &mut Room, room_id: RoomId) -> ResponseResult<()> {
+    if let Ok(word_guess_try) = room.skip() {
+        send_new_word(bot, word_guess_try, room_id, room).await?;
     }
     Ok(())
 }

@@ -1,4 +1,7 @@
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::{
+    collections::{BTreeSet, HashMap, HashSet},
+    time::{Duration, Instant},
+};
 
 use rand::Rng;
 use teloxide::types::{User, UserId};
@@ -7,6 +10,7 @@ use crate::words::{get_random_word, Word};
 
 pub const ROUNDS_COUNT: usize = 7;
 pub const ROUND_DURATION_IN_MINUTES: usize = 2;
+pub const SKIP_COOL_DOWN_IN_SECONDS: usize = 10;
 
 pub fn get_new_id() -> RoomId {
     RoomId(rand::thread_rng().gen_range(10_000..=99_999))
@@ -35,7 +39,7 @@ pub enum GameLogicError {
 }
 
 #[derive(Default)]
-struct NewRoom {
+pub struct NewRoom {
     players: HashMap<UserId, User>,
     number_of_teams: usize,
     teams: Vec<HashSet<UserId>>,
@@ -122,7 +126,7 @@ impl NewRoom {
 struct PlayingTeam {
     first: User,
     second: User,
-    time: f32,
+    time: Duration,
     turn: u8,
 }
 
@@ -141,12 +145,25 @@ impl PlayingTeam {
             self.first.clone()
         }
     }
+
+    fn advance_turn(&mut self) {
+        if self.turn == 0 {
+            self.turn = 1;
+        } else {
+            self.turn = 0;
+        }
+    }
+
+    fn update_time(&mut self, instant: Instant) {
+        self.time += Instant::now() - instant;
+    }
 }
 
-struct PlayingRoom {
+pub struct PlayingRoom {
     teams: Vec<PlayingTeam>,
     turn: u8,
     round: u8,
+    instant: Instant,
 }
 
 impl PlayingRoom {
@@ -161,13 +178,14 @@ impl PlayingRoom {
                     PlayingTeam {
                         first: lobby.players.get(team.get(0).unwrap()).unwrap().to_owned(),
                         second: lobby.players.get(team.get(1).unwrap()).unwrap().to_owned(),
-                        time: 0.0,
+                        time: Duration::from_secs(0),
                         turn: 0,
                     }
                 })
                 .collect(),
             turn: 0,
             round: 0,
+            instant: Instant::now(),
         }
     }
 
@@ -177,6 +195,13 @@ impl PlayingRoom {
 
     fn get_guessing_player(&self) -> User {
         self.teams[self.turn as usize].get_guessing_player()
+    }
+
+    fn next(&mut self) {
+        self.teams[self.turn as usize].update_time(self.instant);
+        self.teams[self.turn as usize].advance_turn();
+        self.turn += 1;
+        self.turn %= self.teams.len() as u8;
     }
 }
 
@@ -229,6 +254,13 @@ impl Room {
         }
     }
 
+    fn get_playing_mut(&mut self) -> Result<&mut PlayingRoom, GameLogicError> {
+        match self {
+            Room::Lobby(_) => Err(GameLogicError::IsNotPlaying),
+            Room::Playing(playing) => Ok(playing),
+        }
+    }
+
     pub fn get_all_players(&self) -> Vec<UserId> {
         match self {
             Room::Lobby(lobby) => lobby.players.clone().into_keys().collect::<Vec<_>>(),
@@ -256,10 +288,33 @@ impl Room {
         }
     }
 
-    pub fn start_round(&self) -> Result<WordGuessTry, GameLogicError> {
-        let Room::Playing(playing) = self else {
-            return Err(GameLogicError::IsNotPlaying);
-        };
+    pub fn start_round(&mut self) -> Result<WordGuessTry, GameLogicError> {
+        let playing = self.get_playing_mut()?;
+
+        playing.instant = Instant::now();
+
+        Ok(WordGuessTry {
+            word: get_random_word().text.clone(),
+            describing: playing.get_describing_player(),
+            guessing: playing.get_guessing_player(),
+        })
+    }
+
+    pub fn correct(&mut self) -> Result<WordGuessTry, GameLogicError> {
+        let playing = self.get_playing_mut()?;
+
+        playing.next();
+        playing.instant = Instant::now();
+
+        Ok(WordGuessTry {
+            word: get_random_word().text.clone(),
+            describing: playing.get_describing_player(),
+            guessing: playing.get_guessing_player(),
+        })
+    }
+
+    pub fn skip(&mut self) -> Result<WordGuessTry, GameLogicError> {
+        let playing = self.get_playing()?;
 
         Ok(WordGuessTry {
             word: get_random_word().text.clone(),
