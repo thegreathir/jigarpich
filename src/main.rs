@@ -93,9 +93,9 @@ async fn handle_cb_query(bot: Bot, rooms: Rooms, q: CallbackQuery) -> ResponseRe
         }
         CbQueryCommand::GetTeams => handle_get_teams(bot, &room, q.from).await?,
         CbQueryCommand::Play => handle_play(bot, &mut room, room_id, q.from).await?,
-        CbQueryCommand::Start => handle_start_round(bot, &mut room, room_id).await?,
-        CbQueryCommand::Correct => handle_correct(bot, &mut room, room_id).await?,
-        CbQueryCommand::Skip => handle_skip(bot, &mut room, room_id).await?,
+        CbQueryCommand::Start => handle_start_round(rooms.clone(), &mut room, room_id, bot).await?,
+        CbQueryCommand::Correct => handle_correct(rooms.clone(), &mut room, room_id, bot).await?,
+        CbQueryCommand::Skip => handle_skip(rooms.clone(), &mut room, room_id, bot).await?,
     };
     Ok(())
 }
@@ -170,7 +170,7 @@ async fn handle_join_command(
                 .await?;
         }
         Err(room::GameLogicError::JoinAfterPlay) => {
-            bot.send_message(msg.chat.id, "Game is started. You can't join anymore!")
+            bot.send_message(msg.chat.id, "Game has started. You can't join anymore!")
                 .await?;
         }
         Err(_) => {}
@@ -207,7 +207,7 @@ async fn handle_team_join(
         Err(room::GameLogicError::TeamChangeAfterPlay) => {
             bot.send_message(
                 user.id,
-                "Game is started. You can't change your team anymore!",
+                "Game has started. You can't change your team anymore!",
             )
             .await?;
         }
@@ -230,20 +230,28 @@ async fn handle_play(bot: Bot, room: &mut Room, room_id: RoomId, user: User) -> 
                 room.get_all_players(),
                 &bot,
                 format!(
-                    "Game is started. {} should start the first round!",
+                    "Game has started. {} should start the first round!",
                     describing_player.full_name()
                 ),
             )
             .await?;
 
-            bot.send_message(describing_player.id, "Start round")
+            let sent_message = bot
+                .send_message(describing_player.id, "Start round")
                 .reply_markup(InlineKeyboardMarkup::new([vec![
                     InlineKeyboardButton::callback(
-                        "Start",
+                        "▶️",
                         serialize_command(room_id, CbQueryCommand::Start),
                     ),
                 ]]))
                 .await?;
+
+            if room
+                .push_to_message_stack(sent_message.chat.id, sent_message.id)
+                .is_err()
+            {
+                // TODO: Log
+            }
         }
         Err(GameLogicError::NotBalancedTeams) => {
             bot.send_message(user.id, "Teams are not balanced").await?;
@@ -253,20 +261,40 @@ async fn handle_play(bot: Bot, room: &mut Room, room_id: RoomId, user: User) -> 
     Ok(())
 }
 
-async fn handle_start_round(bot: Bot, room: &mut Room, room_id: RoomId) -> ResponseResult<()> {
+async fn handle_start_round(
+    rooms: Rooms,
+    room: &mut Room,
+    room_id: RoomId,
+    bot: Bot,
+) -> ResponseResult<()> {
     if let Ok(word_guess_try) = room.start_round() {
-        send_new_word(bot, word_guess_try, room_id, room).await?;
+        send_new_word(rooms, room, room_id, bot, word_guess_try).await?;
     }
     Ok(())
 }
 
+async fn clear_last_buttons(bot: &Bot, room: &Room) -> ResponseResult<()> {
+    let Ok(Some((chat_id, message_id))) = room.get_message_stack_top() else {
+        //TODO: Log
+        return Ok(());
+    };
+
+    bot.edit_message_reply_markup(chat_id, message_id)
+        .reply_markup(InlineKeyboardMarkup::new([[]]))
+        .await?;
+
+    Ok(())
+}
+
 async fn send_new_word(
+    rooms: Rooms,
+    room: &mut Room,
+    room_id: RoomId,
     bot: Bot,
     word_guess_try: room::WordGuessTry,
-    room_id: RoomId,
-    room: &mut Room,
 ) -> ResponseResult<()> {
-    let sent_word = bot
+    clear_last_buttons(&bot, room).await?;
+    let sent_message = bot
         .send_message(word_guess_try.describing.id, word_guess_try.word.clone())
         .reply_markup(InlineKeyboardMarkup::new([vec![
             InlineKeyboardButton::callback(
@@ -275,6 +303,14 @@ async fn send_new_word(
             ),
         ]]))
         .await?;
+
+    if room
+        .push_to_message_stack(sent_message.chat.id, sent_message.id)
+        .is_err()
+    {
+        // TODO: Log
+    }
+
     bot.send_message(word_guess_try.guessing.id, "Try to guess the word")
         .await?;
     let mut players = BTreeSet::from_iter(room.get_all_players().into_iter());
@@ -287,40 +323,61 @@ async fn send_new_word(
     )
     .await?;
     tokio::task::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(SKIP_COOL_DOWN_IN_SECONDS as u64)).await;
-
-        if (bot
-            .edit_message_reply_markup(sent_word.chat.id, sent_word.id)
-            .reply_markup(InlineKeyboardMarkup::new([vec![
-                InlineKeyboardButton::callback(
-                    "✅",
-                    serialize_command(room_id, CbQueryCommand::Correct),
-                ),
-                InlineKeyboardButton::callback(
-                    "Skip",
-                    serialize_command(room_id, CbQueryCommand::Skip),
-                ),
-            ]]))
-            .await)
-            .is_err()
-        {
-
-            // TODO: Log if failed
-        }
+        add_skip_button(rooms, room_id, bot, sent_message).await;
     });
     Ok(())
 }
 
-async fn handle_correct(bot: Bot, room: &mut Room, room_id: RoomId) -> ResponseResult<()> {
+async fn add_skip_button(rooms: Rooms, room_id: RoomId, bot: Bot, sent_message: Message) {
+    tokio::time::sleep(Duration::from_secs(SKIP_COOL_DOWN_IN_SECONDS as u64)).await;
+    let Some(mut room) = rooms.get_mut(&room_id) else {
+        return;
+    };
+    let Ok(Some((chat_id, message_id))) = room.get_message_stack_top() else {
+        return;
+    };
+
+    if chat_id != sent_message.chat.id || message_id != sent_message.id {
+        return;
+    }
+
+    if (bot
+        .edit_message_reply_markup(sent_message.chat.id, sent_message.id)
+        .reply_markup(InlineKeyboardMarkup::new([vec![
+            InlineKeyboardButton::callback(
+                "✅",
+                serialize_command(room_id, CbQueryCommand::Correct),
+            ),
+            InlineKeyboardButton::callback("⏩️", serialize_command(room_id, CbQueryCommand::Skip)),
+        ]]))
+        .await)
+        .is_err()
+    {
+
+        // TODO: Log if failed
+    }
+}
+
+async fn handle_correct(
+    rooms: Rooms,
+    room: &mut Room,
+    room_id: RoomId,
+    bot: Bot,
+) -> ResponseResult<()> {
     if let Ok(word_guess_try) = room.correct() {
-        send_new_word(bot, word_guess_try, room_id, room).await?;
+        send_new_word(rooms, room, room_id, bot, word_guess_try).await?;
     }
     Ok(())
 }
 
-async fn handle_skip(bot: Bot, room: &mut Room, room_id: RoomId) -> ResponseResult<()> {
+async fn handle_skip(
+    rooms: Rooms,
+    room: &mut Room,
+    room_id: RoomId,
+    bot: Bot,
+) -> ResponseResult<()> {
     if let Ok(word_guess_try) = room.skip() {
-        send_new_word(bot, word_guess_try, room_id, room).await?;
+        send_new_word(rooms, room, room_id, bot, word_guess_try).await?;
     }
     Ok(())
 }

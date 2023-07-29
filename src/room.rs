@@ -4,9 +4,9 @@ use std::{
 };
 
 use rand::Rng;
-use teloxide::types::{User, UserId};
+use teloxide::types::{ChatId, MessageId, User, UserId};
 
-use crate::words::{get_random_word, Word};
+use crate::words::get_random_word;
 
 pub const ROUNDS_COUNT: usize = 7;
 pub const ROUND_DURATION_IN_MINUTES: usize = 2;
@@ -164,6 +164,7 @@ pub struct PlayingRoom {
     turn: u8,
     round: u8,
     instant: Instant,
+    message_stack: Vec<(ChatId, MessageId)>,
 }
 
 impl PlayingRoom {
@@ -186,6 +187,7 @@ impl PlayingRoom {
             turn: 0,
             round: 0,
             instant: Instant::now(),
+            message_stack: Vec::new(),
         }
     }
 
@@ -313,7 +315,7 @@ impl Room {
         })
     }
 
-    pub fn skip(&mut self) -> Result<WordGuessTry, GameLogicError> {
+    pub fn skip(&self) -> Result<WordGuessTry, GameLogicError> {
         let playing = self.get_playing()?;
 
         Ok(WordGuessTry {
@@ -321,5 +323,20 @@ impl Room {
             describing: playing.get_describing_player(),
             guessing: playing.get_guessing_player(),
         })
+    }
+
+    pub fn push_to_message_stack(
+        &mut self,
+        chat_id: ChatId,
+        message_id: MessageId,
+    ) -> Result<(), GameLogicError> {
+        let playing = self.get_playing_mut()?;
+        playing.message_stack.push((chat_id, message_id));
+        Ok(())
+    }
+
+    pub fn get_message_stack_top(&self) -> Result<Option<(ChatId, MessageId)>, GameLogicError> {
+        let playing = self.get_playing()?;
+        Ok(playing.message_stack.last().copied())
     }
 }
