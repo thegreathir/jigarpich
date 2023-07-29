@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, env, sync::Arc};
+use std::{collections::BTreeSet, env, sync::Arc, time::Duration};
 
 use callback_query_command::{parse_command, serialize_command, CbQueryCommand};
 use dashmap::DashMap;
@@ -95,6 +95,7 @@ async fn handle_cb_query(bot: Bot, rooms: Rooms, q: CallbackQuery) -> ResponseRe
         CbQueryCommand::Play => handle_play(bot, &mut room, room_id, q.from).await?,
         CbQueryCommand::Start => handle_start_round(bot, &mut room, room_id).await?,
         CbQueryCommand::Correct => todo!(),
+        CbQueryCommand::Skip => todo!(),
     };
     Ok(())
 }
@@ -254,7 +255,8 @@ async fn handle_play(bot: Bot, room: &mut Room, room_id: RoomId, user: User) -> 
 
 async fn handle_start_round(bot: Bot, room: &mut Room, room_id: RoomId) -> ResponseResult<()> {
     if let Ok(word_guess_try) = room.start_round() {
-        bot.send_message(word_guess_try.describing.id, word_guess_try.word.clone())
+        let sent_word = bot
+            .send_message(word_guess_try.describing.id, word_guess_try.word.clone())
             .reply_markup(InlineKeyboardMarkup::new([vec![
                 InlineKeyboardButton::callback(
                     "✅",
@@ -276,6 +278,29 @@ async fn handle_start_round(bot: Bot, room: &mut Room, room_id: RoomId) -> Respo
             word_guess_try.word.clone(),
         )
         .await?;
+
+        tokio::task::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+
+            if (bot
+                .edit_message_reply_markup(sent_word.chat.id, sent_word.id)
+                .reply_markup(InlineKeyboardMarkup::new([vec![
+                    InlineKeyboardButton::callback(
+                        "✅",
+                        serialize_command(room_id, CbQueryCommand::Correct),
+                    ),
+                    InlineKeyboardButton::callback(
+                        "Skip",
+                        serialize_command(room_id, CbQueryCommand::Skip),
+                    ),
+                ]]))
+                .await)
+                .is_err()
+            {
+
+                // TODO: Log if failed
+            }
+        });
     }
     Ok(())
 }

@@ -6,6 +6,7 @@ pub enum CbQueryCommand {
     Play,
     Start,
     Correct,
+    Skip,
 }
 
 pub fn serialize_command(room_id: RoomId, query_command: CbQueryCommand) -> String {
@@ -15,6 +16,7 @@ pub fn serialize_command(room_id: RoomId, query_command: CbQueryCommand) -> Stri
         CbQueryCommand::Play => format!("play {}", room_id.0),
         CbQueryCommand::Start => format!("start {}", room_id.0),
         CbQueryCommand::Correct => format!("correct {}", room_id.0),
+        CbQueryCommand::Skip => format!("skip {}", room_id.0),
     }
 }
 
@@ -43,6 +45,7 @@ pub fn parse_command(data: String) -> Option<(RoomId, CbQueryCommand)> {
         "play" => Some((room_id, CbQueryCommand::Play)),
         "start" => Some((room_id, CbQueryCommand::Start)),
         "correct" => Some((room_id, CbQueryCommand::Correct)),
+        "skip" => Some((room_id, CbQueryCommand::Skip)),
         _ => None,
     }
 }
