@@ -2,13 +2,17 @@ use std::{collections::BTreeSet, env, sync::Arc, time::Duration};
 
 use callback_query_command::{parse_command, serialize_command, CbQueryCommand};
 use dashmap::DashMap;
-use room::{get_new_id, get_teams, GameLogicError, Room, RoomId, SKIP_COOL_DOWN_IN_SECONDS};
+use room::{
+    get_new_id, get_teams, GameLogicError, Room, RoomId, ROUND_DURATION_IN_MINUTES,
+    SKIP_COOL_DOWN_IN_SECONDS,
+};
 use teloxide::{
     macros::BotCommands,
     prelude::*,
     types::{InlineKeyboardButton, InlineKeyboardMarkup, User},
     update_listeners::webhooks,
 };
+use tokio::sync::Mutex;
 
 mod room;
 
@@ -16,7 +20,7 @@ mod callback_query_command;
 
 mod words;
 
-type Rooms = Arc<DashMap<RoomId, Room>>;
+type Rooms = Arc<DashMap<RoomId, Mutex<Room>>>;
 
 #[derive(BotCommands, Clone)]
 #[command(rename_rule = "lowercase")]
@@ -83,16 +87,17 @@ async fn handle_cb_query(bot: Bot, rooms: Rooms, q: CallbackQuery) -> ResponseRe
         return Ok(());
     };
 
-    let Some(mut room) = rooms.get_mut(&room_id) else {
+    let Some(room) = rooms.get(&room_id) else {
         return Ok(());
     };
+    let mut room = room.lock().await;
 
     match command {
         CbQueryCommand::Join { team_index } => {
             handle_team_join(bot, &mut room, q.from, team_index).await?
         }
         CbQueryCommand::GetTeams => handle_get_teams(bot, &room, q.from).await?,
-        CbQueryCommand::Play => handle_play(bot, &mut room, room_id, q.from).await?,
+        CbQueryCommand::Play => handle_play(&mut room, room_id, bot, q.from).await?,
         CbQueryCommand::Start => handle_start_round(rooms.clone(), &mut room, room_id, bot).await?,
         CbQueryCommand::Correct => handle_correct(rooms.clone(), &mut room, room_id, bot).await?,
         CbQueryCommand::Skip => handle_skip(rooms.clone(), &mut room, room_id, bot).await?,
@@ -113,7 +118,7 @@ async fn handle_new_command(
     }
 
     let new_id = get_new_id();
-    rooms.insert(new_id, Room::new(number_of_teams));
+    rooms.insert(new_id, Mutex::new(Room::new(number_of_teams)));
     bot.send_message(msg.chat.id, "Room created! Forward following message join:")
         .await?;
     bot.send_message(msg.chat.id, format!("/join {}", new_id.0))
@@ -127,15 +132,18 @@ async fn handle_join_command(
     rooms: Rooms,
     room_id: u32,
 ) -> ResponseResult<()> {
+    let Some(user) = msg.from() else {
+        return Ok(());
+    };
     let room_id = RoomId(room_id);
-    let Some(mut room) = rooms.get_mut(&room_id) else {
+    let Some(room) = rooms.get(&room_id) else {
         bot.send_message(msg.chat.id, "Room number is wrong!")
             .await?;
         return Ok(());
     };
-    let Some(user) = msg.from() else {
-        return Ok(());
-    };
+
+    let mut room = room.lock().await;
+
     match room.join(user.clone()) {
         Ok((others, number_of_teams)) => {
             broadcast(others, &bot, format!("{} joined to room", user.full_name())).await?;
@@ -223,7 +231,7 @@ async fn handle_get_teams(bot: Bot, room: &Room, user: User) -> ResponseResult<(
     Ok(())
 }
 
-async fn handle_play(bot: Bot, room: &mut Room, room_id: RoomId, user: User) -> ResponseResult<()> {
+async fn handle_play(room: &mut Room, room_id: RoomId, bot: Bot, user: User) -> ResponseResult<()> {
     match room.play() {
         Ok(describing_player) => {
             broadcast(
@@ -261,6 +269,85 @@ async fn handle_play(bot: Bot, room: &mut Room, room_id: RoomId, user: User) -> 
     Ok(())
 }
 
+async fn finish_round(rooms: Rooms, room_id: RoomId, bot: Bot) {
+    tokio::time::sleep(Duration::from_secs(60 * ROUND_DURATION_IN_MINUTES as u64)).await;
+    let Some(room) = rooms.get(
+        &room_id) else {
+        return;
+    };
+
+    let mut room = room.lock().await;
+
+    if clear_last_buttons(&bot, &room).await.is_err() {
+        // TODO: Log
+    }
+
+    let Ok(round_stop_state) = room.stop_round() else {
+        // TODO: Log
+        return;
+    };
+
+    match round_stop_state {
+        room::RoundStopState::RoundFinished(results, describing_player, round) => {
+            if broadcast(room.get_all_players(), &bot, results)
+                .await
+                .is_err()
+            {
+                //TODO: Log
+            }
+
+            if broadcast(
+                room.get_all_players(),
+                &bot,
+                format!(
+                    "Round has finished! {} should start round {}!",
+                    describing_player.full_name(),
+                    round
+                ),
+            )
+            .await
+            .is_err()
+            {
+                //TODO: Log
+            }
+
+            let Ok(sent_message) = bot
+                .send_message(describing_player.id, "Start round")
+                .reply_markup(InlineKeyboardMarkup::new([vec![
+                    InlineKeyboardButton::callback(
+                        "▶️",
+                        serialize_command(room_id, CbQueryCommand::Start),
+                    ),
+                ]]))
+                .await else {
+                    //TODO: Log
+                    return;
+                };
+
+            if room
+                .push_to_message_stack(sent_message.chat.id, sent_message.id)
+                .is_err()
+            {
+                // TODO: Log
+            }
+        }
+        room::RoundStopState::GameFinished(results) => {
+            if broadcast(room.get_all_players(), &bot, "Game finished!".to_owned())
+                .await
+                .is_err()
+            {
+                //TODO: Log
+            }
+            if broadcast(room.get_all_players(), &bot, results)
+                .await
+                .is_err()
+            {
+                //TODO: Log
+            }
+        }
+    }
+}
+
 async fn handle_start_round(
     rooms: Rooms,
     room: &mut Room,
@@ -268,7 +355,11 @@ async fn handle_start_round(
     bot: Bot,
 ) -> ResponseResult<()> {
     if let Ok(word_guess_try) = room.start_round() {
-        send_new_word(rooms, room, room_id, bot, word_guess_try).await?;
+        send_new_word(rooms.clone(), room, room_id, bot.clone(), word_guess_try).await?;
+
+        tokio::task::spawn(async move {
+            finish_round(rooms, room_id, bot).await;
+        });
     }
     Ok(())
 }
@@ -330,9 +421,10 @@ async fn send_new_word(
 
 async fn add_skip_button(rooms: Rooms, room_id: RoomId, bot: Bot, sent_message: Message) {
     tokio::time::sleep(Duration::from_secs(SKIP_COOL_DOWN_IN_SECONDS as u64)).await;
-    let Some(mut room) = rooms.get_mut(&room_id) else {
+    let Some(room) = rooms.get(&room_id) else {
         return;
     };
+    let room = room.lock().await;
     let Ok(Some((chat_id, message_id))) = room.get_message_stack_top() else {
         return;
     };

@@ -8,7 +8,7 @@ use teloxide::types::{ChatId, MessageId, User, UserId};
 
 use crate::words::get_random_word;
 
-pub const ROUNDS_COUNT: usize = 7;
+const ROUNDS_COUNT: u8 = 7;
 pub const ROUND_DURATION_IN_MINUTES: usize = 2;
 pub const SKIP_COOL_DOWN_IN_SECONDS: usize = 10;
 
@@ -200,10 +200,14 @@ impl PlayingRoom {
     }
 
     fn next(&mut self) {
-        self.teams[self.turn as usize].update_time(self.instant);
+        self.update_time();
         self.teams[self.turn as usize].advance_turn();
         self.turn += 1;
         self.turn %= self.teams.len() as u8;
+    }
+
+    fn update_time(&mut self) {
+        self.teams[self.turn as usize].update_time(self.instant);
     }
 }
 
@@ -216,6 +220,11 @@ pub struct WordGuessTry {
     pub word: String,
     pub describing: User,
     pub guessing: User,
+}
+
+pub enum RoundStopState {
+    RoundFinished(String, User, u8),
+    GameFinished(String),
 }
 
 impl Room {
@@ -338,5 +347,30 @@ impl Room {
     pub fn get_message_stack_top(&self) -> Result<Option<(ChatId, MessageId)>, GameLogicError> {
         let playing = self.get_playing()?;
         Ok(playing.message_stack.last().copied())
+    }
+
+    pub fn stop_round(&mut self) -> Result<RoundStopState, GameLogicError> {
+        let playing = self.get_playing_mut()?;
+        playing.update_time();
+
+        let results = playing
+            .teams
+            .iter()
+            .enumerate()
+            .fold("".to_owned(), |mut res, (i, team)| {
+                res += &format!("{}: {}\n", get_team_name(i), team.time.as_secs_f32());
+                res
+            });
+
+        playing.round += 1;
+        if playing.round == ROUNDS_COUNT {
+            Ok(RoundStopState::GameFinished(results))
+        } else {
+            Ok(RoundStopState::RoundFinished(
+                results,
+                playing.get_describing_player(),
+                playing.round + 1,
+            ))
+        }
     }
 }
