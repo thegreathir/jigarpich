@@ -24,7 +24,7 @@ pub fn get_teams(number_of_teams: usize) -> Vec<String> {
     (0..number_of_teams).map(get_team_name).collect()
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct RoomId(pub u32);
 
 #[derive(Debug)]

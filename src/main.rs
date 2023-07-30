@@ -259,7 +259,7 @@ async fn handle_play(room: &mut Room, room_id: RoomId, bot: Bot, user: User) -> 
                 .push_to_message_stack(sent_message.chat.id, sent_message.id)
                 .is_err()
             {
-                // TODO: Log
+                log::warn!("Error while pushing to message stack {:?}", room_id);
             }
         }
         Err(GameLogicError::NotBalancedTeams) => {
@@ -279,25 +279,22 @@ async fn finish_round(rooms: Rooms, room_id: RoomId, bot: Bot) {
 
     let mut room = room.lock().await;
 
-    if clear_last_buttons(&bot, &room).await.is_err() {
-        // TODO: Log
+    if let Err(err) = clear_last_buttons(&bot, &room).await {
+        log::warn!("Can not clear buttons: {}", err);
     }
 
     let Ok(round_stop_state) = room.stop_round() else {
-        // TODO: Log
+        log::warn!("Room in bad state while stopping round {:?}", room_id);
         return;
     };
 
     match round_stop_state {
         room::RoundStopState::RoundFinished(results, describing_player, round) => {
-            if broadcast(room.get_all_players(), &bot, results)
-                .await
-                .is_err()
-            {
-                //TODO: Log
+            if let Err(err) = broadcast(room.get_all_players(), &bot, results).await {
+                log::warn!("Can not broadcast results: {}", err);
             }
 
-            if broadcast(
+            if let Err(err) = broadcast(
                 room.get_all_players(),
                 &bot,
                 format!(
@@ -307,12 +304,11 @@ async fn finish_round(rooms: Rooms, room_id: RoomId, bot: Bot) {
                 ),
             )
             .await
-            .is_err()
             {
-                //TODO: Log
+                log::warn!("Can not broadcast round finished alert: {}", err);
             }
 
-            let Ok(sent_message) = bot
+            let sent_message = match bot
                 .send_message(describing_player.id, "Start round")
                 .reply_markup(InlineKeyboardMarkup::new([vec![
                     InlineKeyboardButton::callback(
@@ -320,30 +316,30 @@ async fn finish_round(rooms: Rooms, room_id: RoomId, bot: Bot) {
                         serialize_command(room_id, CbQueryCommand::Start),
                     ),
                 ]]))
-                .await else {
-                    //TODO: Log
+                .await
+            {
+                Ok(sent_message) => sent_message,
+                Err(err) => {
+                    log::warn!("Can not send start round message: {}", err);
                     return;
-                };
+                }
+            };
 
             if room
                 .push_to_message_stack(sent_message.chat.id, sent_message.id)
                 .is_err()
             {
-                // TODO: Log
+                log::warn!("Error while pushing to message stack {:?}", room_id);
             }
         }
         room::RoundStopState::GameFinished(results) => {
-            if broadcast(room.get_all_players(), &bot, "Game finished!".to_owned())
-                .await
-                .is_err()
+            if let Err(err) =
+                broadcast(room.get_all_players(), &bot, "Game finished!".to_owned()).await
             {
-                //TODO: Log
+                log::warn!("Can not broadcast game finished alert: {}", err);
             }
-            if broadcast(room.get_all_players(), &bot, results)
-                .await
-                .is_err()
-            {
-                //TODO: Log
+            if let Err(err) = broadcast(room.get_all_players(), &bot, results).await {
+                log::warn!("Can not broadcast results: {}", err);
             }
         }
     }
@@ -367,7 +363,6 @@ async fn handle_start_round(
 
 async fn clear_last_buttons(bot: &Bot, room: &Room) -> ResponseResult<()> {
     let Ok(Some((chat_id, message_id))) = room.get_message_stack_top() else {
-        //TODO: Log
         return Ok(());
     };
 
@@ -400,7 +395,7 @@ async fn send_new_word(
         .push_to_message_stack(sent_message.chat.id, sent_message.id)
         .is_err()
     {
-        // TODO: Log
+        log::warn!("Error while pushing to message stack {:?}", room_id);
     }
 
     bot.send_message(word_guess_try.guessing.id, "🤔").await?;
@@ -438,7 +433,7 @@ async fn add_skip_button(rooms: Rooms, room_id: RoomId, bot: Bot, sent_message: 
         return;
     }
 
-    if (bot
+    if let Err(err) = bot
         .edit_message_reply_markup(sent_message.chat.id, sent_message.id)
         .reply_markup(InlineKeyboardMarkup::new([vec![
             InlineKeyboardButton::callback(
@@ -447,11 +442,9 @@ async fn add_skip_button(rooms: Rooms, room_id: RoomId, bot: Bot, sent_message: 
             ),
             InlineKeyboardButton::callback("⏩️", serialize_command(room_id, CbQueryCommand::Skip)),
         ]]))
-        .await)
-        .is_err()
+        .await
     {
-
-        // TODO: Log if failed
+        log::warn!("Can not add skip button: {:?} {}", room_id, err);
     }
 }
 
