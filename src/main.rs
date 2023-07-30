@@ -228,9 +228,7 @@ async fn handle_team_join(
 }
 
 async fn handle_get_teams(bot: Bot, room: &Room, user: User) -> ResponseResult<()> {
-    if let Ok(teams) = room.get_teams() {
-        bot.send_message(user.id, teams).await?;
-    }
+    bot.send_message(user.id, room.get_teams()).await?;
     Ok(())
 }
 

@@ -81,9 +81,8 @@ impl NewRoom {
         }
     }
 
-    fn get_teams(&self) -> Result<String, GameLogicError> {
-        let result = self
-            .teams
+    fn get_teams(&self) -> String {
+        self.teams
             .iter()
             .enumerate()
             .fold("".to_owned(), |mut res, (i, members)| {
@@ -98,9 +97,7 @@ impl NewRoom {
                 });
 
                 res
-            });
-
-        Ok(result)
+            })
     }
 
     fn check_teams_ready(&self) -> Result<(), GameLogicError> {
@@ -210,6 +207,22 @@ impl PlayingRoom {
     fn update_time(&mut self) {
         self.teams[self.turn as usize].update_time(self.instant);
     }
+
+    fn get_teams(&self) -> String {
+        self.teams
+            .iter()
+            .enumerate()
+            .fold("".to_owned(), |mut res, (i, team)| {
+                res += &format!(
+                    "{}:\n\t- {}\n\t- {}\n\t⏱️ {:.2}\n",
+                    get_team_name(i),
+                    team.first.full_name(),
+                    team.second.full_name(),
+                    team.time.as_secs_f32()
+                );
+                res
+            })
+    }
 }
 
 pub enum Room {
@@ -251,11 +264,10 @@ impl Room {
         }
     }
 
-    pub fn get_teams(&self) -> Result<String, GameLogicError> {
+    pub fn get_teams(&self) -> String {
         match self {
             Room::Lobby(lobby) => lobby.get_teams(),
-            // TODO What to do?
-            Room::Playing(_) => Ok("".to_owned()),
+            Room::Playing(playing) => playing.get_teams(),
         }
     }
 
@@ -354,20 +366,7 @@ impl Room {
         let playing = self.get_playing_mut()?;
         playing.update_time();
 
-        let results = playing
-            .teams
-            .iter()
-            .enumerate()
-            .fold("".to_owned(), |mut res, (i, team)| {
-                res += &format!(
-                    "{}:\n\t- {}\n\t- {}\n\t⏱️ {:.2}\n",
-                    get_team_name(i),
-                    team.first.full_name(),
-                    team.second.full_name(),
-                    team.time.as_secs_f32()
-                );
-                res
-            });
+        let results = playing.get_teams();
 
         playing.round += 1;
         if playing.round == ROUNDS_COUNT {
