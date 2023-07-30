@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rand::Rng;
+use rand::{seq::SliceRandom, Rng};
 use teloxide::types::{ChatId, MessageId, User, UserId};
 
 use crate::words::get_random_word;
@@ -104,7 +104,6 @@ impl NewRoom {
     }
 
     fn check_teams_ready(&self) -> Result<(), GameLogicError> {
-        // TODO: Check if teams contain wrong user ID
         if self
             .teams
             .iter()
@@ -169,21 +168,23 @@ pub struct PlayingRoom {
 
 impl PlayingRoom {
     fn from(lobby: NewRoom) -> PlayingRoom {
-        // TODO: Shuffle teams
+        let mut rng = rand::thread_rng();
+        let mut teams = lobby
+            .teams
+            .into_iter()
+            .map(|team| {
+                let team: Vec<_> = team.into_iter().collect();
+                PlayingTeam {
+                    first: lobby.players.get(team.get(0).unwrap()).unwrap().to_owned(),
+                    second: lobby.players.get(team.get(1).unwrap()).unwrap().to_owned(),
+                    time: Duration::from_secs(0),
+                    turn: 0,
+                }
+            })
+            .collect::<Vec<_>>();
+        teams.shuffle(&mut rng);
         PlayingRoom {
-            teams: lobby
-                .teams
-                .into_iter()
-                .map(|team| {
-                    let team: Vec<_> = team.into_iter().collect();
-                    PlayingTeam {
-                        first: lobby.players.get(team.get(0).unwrap()).unwrap().to_owned(),
-                        second: lobby.players.get(team.get(1).unwrap()).unwrap().to_owned(),
-                        time: Duration::from_secs(0),
-                        turn: 0,
-                    }
-                })
-                .collect(),
+            teams,
             turn: 0,
             round: 0,
             instant: Instant::now(),
@@ -358,7 +359,13 @@ impl Room {
             .iter()
             .enumerate()
             .fold("".to_owned(), |mut res, (i, team)| {
-                res += &format!("{}: {}\n", get_team_name(i), team.time.as_secs_f32());
+                res += &format!(
+                    "{}:\n\t- {}\n\t- {}\n\t⏱️ {:.2}\n",
+                    get_team_name(i),
+                    team.first.full_name(),
+                    team.second.full_name(),
+                    team.time.as_secs_f32()
+                );
                 res
             });
 
