@@ -3,7 +3,7 @@ use std::{collections::BTreeSet, env, sync::Arc, time::Duration};
 use callback_query_command::{parse_command, serialize_command, CbQueryCommand};
 use dashmap::DashMap;
 use room::{
-    get_new_id, get_teams, GameLogicError, Room, RoomId, ROUND_DURATION_IN_MINUTES,
+    get_new_id, get_team_name, get_teams, GameLogicError, Room, RoomId, ROUND_DURATION_IN_MINUTES,
     SKIP_COOL_DOWN_IN_SECONDS,
 };
 use teloxide::{
@@ -119,8 +119,11 @@ async fn handle_new_command(
 
     let new_id = get_new_id();
     rooms.insert(new_id, Mutex::new(Room::new(number_of_teams)));
-    bot.send_message(msg.chat.id, "Room created! Forward following message join:")
-        .await?;
+    bot.send_message(
+        msg.chat.id,
+        "Room created! Forward following message to join:",
+    )
+    .await?;
     bot.send_message(msg.chat.id, format!("/join {}", new_id.0))
         .await?;
     Ok(())
@@ -146,7 +149,7 @@ async fn handle_join_command(
 
     match room.join(user.clone()) {
         Ok((others, number_of_teams)) => {
-            broadcast(others, &bot, format!("{} joined to room", user.full_name())).await?;
+            broadcast(others, &bot, format!("{} joined room", user.full_name())).await?;
 
             let teams = get_teams(number_of_teams)
                 .into_iter()
@@ -208,7 +211,7 @@ async fn handle_team_join(
             broadcast(
                 others,
                 &bot,
-                format!("{} has joined to Team {}", user.full_name(), team_index + 1),
+                format!("{} joined {}", user.full_name(), get_team_name(team_index)),
             )
             .await?;
         }
@@ -402,15 +405,19 @@ async fn send_new_word(
         // TODO: Log
     }
 
-    bot.send_message(word_guess_try.guessing.id, "Try to guess the word")
-        .await?;
+    bot.send_message(word_guess_try.guessing.id, "🤔").await?;
     let mut players = BTreeSet::from_iter(room.get_all_players().into_iter());
     players.remove(&word_guess_try.describing.id);
     players.remove(&word_guess_try.guessing.id);
     broadcast(
         players.into_iter().collect(),
         &bot,
-        word_guess_try.word.clone(),
+        format!(
+            "{} -> {}\n\t{}",
+            word_guess_try.describing.full_name(),
+            word_guess_try.guessing.full_name(),
+            word_guess_try.word.clone()
+        ),
     )
     .await?;
     tokio::task::spawn(async move {
