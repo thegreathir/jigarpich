@@ -8,6 +8,8 @@ To keep the game dynamic and fair, players switch roles after each round of gues
 
 A timer tracks how long each team takes to explain and guess the words. The team with the least total time emerges as the winner, making the game a fast-paced rush to be both accurate and efficient!
 
+To enjoy the game, simply send a text to [@jigarpichbot](https://t.me/jigarpichbot) on Telegram.
+
 ## Technology Stack
 * [teloxide](https://github.com/teloxide/teloxide): This library simplifies interactions with the Telegram Bot API, helping with handling updates, creating commands, and managing different states of the bot.
 * [dashmap](https://github.com/xacrimon/dashmap): A highly efficient concurrent hashmap that enables high-speed operations, even with multiple threads interacting with the map.
