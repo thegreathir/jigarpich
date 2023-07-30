@@ -16,17 +16,13 @@ pub fn get_new_id() -> RoomId {
     RoomId(rand::thread_rng().gen_range(10_000..=99_999))
 }
 
-pub fn get_team_name(team_id: usize) -> String {
-    format!("Team {}", team_id + 1)
-}
-
 pub fn get_team_emoji(team_id: usize) -> String {
     const EMOJI_LIST: [&str; 7] = ["🔵", "🟡", "🔴", "🟠", "🟢", "🟣", "🟤"];
     format!("Team {}", EMOJI_LIST[team_id])
 }
 
 pub fn get_teams(number_of_teams: usize) -> Vec<String> {
-    (0..number_of_teams).map(get_team_name).collect()
+    (0..number_of_teams).map(get_team_emoji).collect()
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -91,7 +87,7 @@ impl NewRoom {
             .iter()
             .enumerate()
             .fold("".to_owned(), |mut res, (i, members)| {
-                res += &format!("{}:\n", get_team_name(i));
+                res += &format!("{}:\n", get_team_emoji(i));
 
                 res += &members.iter().fold("".to_owned(), |mut res, member| {
                     if let Some(player) = self.players.get(member) {
@@ -129,6 +125,7 @@ struct PlayingTeam {
     second: User,
     time: Duration,
     turn: u8,
+    name: String,
 }
 
 impl PlayingTeam {
@@ -174,13 +171,15 @@ impl PlayingRoom {
         let mut teams = lobby
             .teams
             .into_iter()
-            .map(|team| {
+            .enumerate()
+            .map(|(team_id, team)| {
                 let team: Vec<_> = team.into_iter().collect();
                 PlayingTeam {
                     first: lobby.players.get(team.get(0).unwrap()).unwrap().to_owned(),
                     second: lobby.players.get(team.get(1).unwrap()).unwrap().to_owned(),
                     time: Duration::from_secs(0),
                     turn: 0,
+                    name: get_team_emoji(team_id),
                 }
             })
             .collect::<Vec<_>>();
@@ -229,7 +228,7 @@ impl PlayingRoom {
                 res += &format!(
                     "{}{}:\n\t- {}\n\t- {}\n\t⏱️ {:.2}s\n\n",
                     if i == min_index { "🏆 " } else { "" },
-                    get_team_emoji(i),
+                    team.name,
                     team.first.full_name(),
                     team.second.full_name(),
                     team.time.as_secs_f32()
@@ -384,6 +383,7 @@ impl Room {
 
         playing.round += 1;
         if playing.round == ROUNDS_COUNT {
+            playing.message_stack.clear();
             Ok(RoundStopState::GameFinished(results))
         } else {
             Ok(RoundStopState::RoundFinished(

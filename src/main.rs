@@ -8,7 +8,7 @@ use std::{
 use callback_query_command::{parse_command, serialize_command, CbQueryCommand};
 use dashmap::DashMap;
 use room::{
-    get_new_id, get_team_name, get_teams, GameLogicError, Room, RoomId, ROUND_DURATION_IN_SECONDS,
+    get_new_id, get_team_emoji, get_teams, GameLogicError, Room, RoomId, ROUND_DURATION_IN_SECONDS,
     SKIP_COOL_DOWN_IN_SECONDS,
 };
 use teloxide::{
@@ -226,7 +226,7 @@ async fn handle_team_join(
             broadcast(
                 others,
                 &bot,
-                format!("{} joined {}", user.full_name(), get_team_name(team_index)),
+                format!("{} joined {}", user.full_name(), get_team_emoji(team_index)),
             )
             .await?;
         }
