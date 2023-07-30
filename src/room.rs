@@ -9,7 +9,7 @@ use teloxide::types::{ChatId, MessageId, User, UserId};
 use crate::words::get_random_word;
 
 const ROUNDS_COUNT: u8 = 7;
-pub const ROUND_DURATION_IN_MINUTES: usize = 2;
+pub const ROUND_DURATION_IN_SECONDS: usize = 120;
 pub const SKIP_COOL_DOWN_IN_SECONDS: usize = 10;
 
 pub fn get_new_id() -> RoomId {
@@ -21,7 +21,7 @@ pub fn get_team_name(team_id: usize) -> String {
 }
 
 pub fn get_team_emoji(team_id: usize) -> String {
-    const EMOJI_LIST: [&str; 7] = ["🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "🟤"];
+    const EMOJI_LIST: [&str; 7] = ["🔵", "🟡", "🔴", "🟠", "🟢", "🟣", "🟤"];
     format!("Team {}", EMOJI_LIST[team_id])
 }
 
@@ -227,7 +227,7 @@ impl PlayingRoom {
             .enumerate()
             .fold("".to_owned(), |mut res, (i, team)| {
                 res += &format!(
-                    "{}{}:\n\t- {}\n\t- {}\n\t⏱️ {:.2}s\n",
+                    "{}{}:\n\t- {}\n\t- {}\n\t⏱️ {:.2}s\n\n",
                     if i == min_index { "🏆 " } else { "" },
                     get_team_emoji(i),
                     team.first.full_name(),

@@ -1,9 +1,14 @@
-use std::{collections::BTreeSet, env, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeSet, HashMap},
+    env,
+    sync::Arc,
+    time::Duration,
+};
 
 use callback_query_command::{parse_command, serialize_command, CbQueryCommand};
 use dashmap::DashMap;
 use room::{
-    get_new_id, get_team_name, get_teams, GameLogicError, Room, RoomId, ROUND_DURATION_IN_MINUTES,
+    get_new_id, get_team_name, get_teams, GameLogicError, Room, RoomId, ROUND_DURATION_IN_SECONDS,
     SKIP_COOL_DOWN_IN_SECONDS,
 };
 use teloxide::{
@@ -30,7 +35,7 @@ type Rooms = Arc<DashMap<RoomId, Mutex<Room>>>;
 enum Command {
     #[command(description = "Display this text")]
     Help,
-    #[command(description = "Create new room")]
+    #[command(description = "Create new room (the number of teams must be given)")]
     New(usize),
     #[command(description = "Join a room")]
     Join(u32),
@@ -280,8 +285,27 @@ async fn handle_play(room: &mut Room, room_id: RoomId, bot: Bot, user: User) -> 
     Ok(())
 }
 
-async fn finish_round(rooms: Rooms, room_id: RoomId, bot: Bot) {
-    tokio::time::sleep(Duration::from_secs(60 * ROUND_DURATION_IN_MINUTES as u64)).await;
+async fn finish_round(rooms: Rooms, room_id: RoomId, players: Vec<UserId>, bot: Bot) {
+    let mut time_alerts = HashMap::new();
+    time_alerts.insert(60, "⏱️📢 1 min ❗");
+    time_alerts.insert(30, "⏱️📢 30 secs ❗");
+    time_alerts.insert(10, "⏱️📢 10 secs ❗");
+
+    time_alerts.into_iter().for_each(|(time, message)| {
+        tokio::spawn({
+            let bot = bot.clone();
+            let players = players.clone();
+            async move {
+                tokio::time::sleep(Duration::from_secs(ROUND_DURATION_IN_SECONDS as u64 - time))
+                    .await;
+                if let Err(err) = broadcast(players, &bot, message.to_string()).await {
+                    log::warn!("Can not broadcast time alert: {}", err);
+                }
+            }
+        });
+    });
+
+    tokio::time::sleep(Duration::from_secs(ROUND_DURATION_IN_SECONDS as u64)).await;
     let Some(room) = rooms.get(
         &room_id) else {
         return;
@@ -364,8 +388,11 @@ async fn handle_start_round(
     if let Ok(word_guess_try) = room.start_round() {
         send_new_word(rooms.clone(), room, room_id, bot.clone(), word_guess_try).await?;
 
-        tokio::task::spawn(async move {
-            finish_round(rooms, room_id, bot).await;
+        tokio::task::spawn({
+            let players = room.get_all_players().clone();
+            async move {
+                finish_round(rooms, room_id, players, bot).await;
+            }
         });
     }
     Ok(())
