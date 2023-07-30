@@ -20,6 +20,11 @@ pub fn get_team_name(team_id: usize) -> String {
     format!("Team {}", team_id + 1)
 }
 
+pub fn get_team_emoji(team_id: usize) -> String {
+    const EMOJI_LIST: [&str; 7] = ["🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "🟤"];
+    format!("Team {}", EMOJI_LIST[team_id])
+}
+
 pub fn get_teams(number_of_teams: usize) -> Vec<String> {
     (0..number_of_teams).map(get_team_name).collect()
 }
@@ -209,13 +214,22 @@ impl PlayingRoom {
     }
 
     fn get_teams(&self) -> String {
+        let Some((min_index, _)) = self
+            .teams
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, team)| team.time) else {
+                return "".to_owned();
+            };
+
         self.teams
             .iter()
             .enumerate()
             .fold("".to_owned(), |mut res, (i, team)| {
                 res += &format!(
-                    "{}:\n\t- {}\n\t- {}\n\t⏱️ {:.2}\n",
-                    get_team_name(i),
+                    "{}{}:\n\t- {}\n\t- {}\n\t⏱️ {:.2}s\n",
+                    if i == min_index { "🏆 " } else { "" },
+                    get_team_emoji(i),
                     team.first.full_name(),
                     team.second.full_name(),
                     team.time.as_secs_f32()

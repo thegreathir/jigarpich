@@ -7,10 +7,10 @@ use room::{
     SKIP_COOL_DOWN_IN_SECONDS,
 };
 use teloxide::{
-    macros::BotCommands,
     prelude::*,
     types::{InlineKeyboardButton, InlineKeyboardMarkup, User},
     update_listeners::webhooks,
+    utils::command::BotCommands,
 };
 use tokio::sync::Mutex;
 
@@ -23,8 +23,13 @@ mod words;
 type Rooms = Arc<DashMap<RoomId, Mutex<Room>>>;
 
 #[derive(BotCommands, Clone)]
-#[command(rename_rule = "lowercase")]
+#[command(
+    rename_rule = "lowercase",
+    description = "These commands are supported:"
+)]
 enum Command {
+    #[command(description = "Display this text")]
+    Help,
     #[command(description = "Create new room")]
     New(usize),
     #[command(description = "Join a room")]
@@ -68,6 +73,11 @@ async fn main() {
 
 async fn answer_command(bot: Bot, rooms: Rooms, msg: Message, cmd: Command) -> ResponseResult<()> {
     match cmd {
+        Command::Help => {
+            bot.send_message(msg.chat.id, Command::descriptions().to_string())
+                .await?;
+        }
+
         Command::New(number_of_teams) => {
             handle_new_command(bot, msg, rooms, number_of_teams).await?;
         }
