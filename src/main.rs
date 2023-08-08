@@ -8,8 +8,7 @@ use std::{
 use callback_query_command::{parse_command, serialize_command, CbQueryCommand};
 use dashmap::DashMap;
 use room::{
-    get_new_id, get_team_emoji, get_teams, GameLogicError, Room, RoomId, ROUND_DURATION_IN_SECONDS,
-    SKIP_COOL_DOWN_IN_SECONDS,
+    get_new_id, get_team_emoji, get_teams, GameLogicError, Room, RoomId, SKIP_COOL_DOWN_IN_SECONDS,
 };
 use teloxide::{
     prelude::*,
@@ -33,10 +32,20 @@ type Rooms = Arc<DashMap<RoomId, Mutex<Room>>>;
     description = "These commands are supported:"
 )]
 enum Command {
+    #[command(description = "Start the bot")]
+    Start,
     #[command(description = "Display this text")]
     Help,
-    #[command(description = "Create new room (the number of teams must be given)")]
-    New(usize),
+    #[command(
+        description = "Create new room, usage: `/new [number of teams] \
+                         [number of rounds] [round duration in minutes]`",
+        parse_with = "split"
+    )]
+    New {
+        number_of_teams: usize,
+        number_of_rounds: usize,
+        round_duration: usize,
+    },
     #[command(description = "Join a room")]
     Join(u32),
 }
@@ -61,9 +70,12 @@ async fn main() {
         .endpoint(answer_command);
     let cb_query_handler = Update::filter_callback_query().endpoint(handle_cb_query);
 
+    let default_handler = Update::filter_message().endpoint(handle_unknown_message);
+
     let handler = dptree::entry()
         .branch(cb_query_handler)
-        .branch(command_handler);
+        .branch(command_handler)
+        .branch(default_handler);
 
     Dispatcher::builder(bot, handler)
         .dependencies(dptree::deps![rooms])
@@ -76,15 +88,36 @@ async fn main() {
         .await
 }
 
+async fn handle_unknown_message(bot: Bot, _rooms: Rooms, msg: Message) -> ResponseResult<()> {
+    bot.send_message(msg.chat.id, "Unknown message!").await?;
+    bot.send_message(msg.chat.id, Command::descriptions().to_string())
+        .parse_mode(teloxide::types::ParseMode::MarkdownV2)
+        .await?;
+    Ok(())
+}
+
 async fn answer_command(bot: Bot, rooms: Rooms, msg: Message, cmd: Command) -> ResponseResult<()> {
     match cmd {
-        Command::Help => {
+        Command::Help | Command::Start => {
             bot.send_message(msg.chat.id, Command::descriptions().to_string())
+                .parse_mode(teloxide::types::ParseMode::MarkdownV2)
                 .await?;
         }
 
-        Command::New(number_of_teams) => {
-            handle_new_command(bot, msg, rooms, number_of_teams).await?;
+        Command::New {
+            number_of_teams,
+            number_of_rounds,
+            round_duration,
+        } => {
+            handle_new_command(
+                bot,
+                msg,
+                rooms,
+                number_of_teams,
+                number_of_rounds,
+                round_duration,
+            )
+            .await?;
         }
         Command::Join(room_id) => {
             handle_join_command(bot, msg, rooms, room_id).await?;
@@ -125,15 +158,35 @@ async fn handle_new_command(
     msg: Message,
     rooms: Rooms,
     number_of_teams: usize,
+    number_of_rounds: usize,
+    round_duration: usize,
 ) -> ResponseResult<()> {
-    if !(2..=4).contains(&number_of_teams) {
-        bot.send_message(msg.chat.id, "Number of teams should be between 2 and 4")
+    if !(2..=7).contains(&number_of_teams) {
+        bot.send_message(msg.chat.id, "Number of teams should be between 2 and 7")
             .await?;
         return Ok(());
     }
 
+    if !(1..=7).contains(&number_of_rounds) {
+        bot.send_message(msg.chat.id, "Number of rounds should be between 1 and 7")
+            .await?;
+        return Ok(());
+    }
+
+    if !(1..=10).contains(&round_duration) {
+        bot.send_message(
+            msg.chat.id,
+            "Round duration should be between 1 minute and 10 minutes",
+        )
+        .await?;
+        return Ok(());
+    }
+
     let new_id = get_new_id();
-    rooms.insert(new_id, Mutex::new(Room::new(number_of_teams)));
+    rooms.insert(
+        new_id,
+        Mutex::new(Room::new(number_of_teams, number_of_rounds, round_duration)),
+    );
     bot.send_message(
         msg.chat.id,
         "Room created! Forward following message to join:",
@@ -166,29 +219,29 @@ async fn handle_join_command(
         Ok((others, number_of_teams)) => {
             broadcast(others, &bot, format!("{} joined room", user.full_name())).await?;
 
-            let teams = get_teams(number_of_teams)
+            let mut buttons = get_teams(number_of_teams)
                 .into_iter()
                 .enumerate()
                 .map(|(idx, team)| {
-                    InlineKeyboardButton::callback(
+                    vec![InlineKeyboardButton::callback(
                         team,
                         serialize_command(room_id, CbQueryCommand::Join { team_index: idx }),
-                    )
+                    )]
                 })
-                .collect();
+                .collect::<Vec<_>>();
+
+            buttons.push(vec![InlineKeyboardButton::callback(
+                "Show Teams",
+                serialize_command(room_id, CbQueryCommand::GetTeams),
+            )]);
+
+            buttons.push(vec![InlineKeyboardButton::callback(
+                "Play",
+                serialize_command(room_id, CbQueryCommand::Play),
+            )]);
 
             bot.send_message(msg.chat.id, "Choose your team")
-                .reply_markup(InlineKeyboardMarkup::new([
-                    teams,
-                    vec![InlineKeyboardButton::callback(
-                        "Show Teams",
-                        serialize_command(room_id, CbQueryCommand::GetTeams),
-                    )],
-                    vec![InlineKeyboardButton::callback(
-                        "Play",
-                        serialize_command(room_id, CbQueryCommand::Play),
-                    )],
-                ]))
+                .reply_markup(InlineKeyboardMarkup::new(buttons))
                 .await?;
         }
         Err(room::GameLogicError::AlreadyJoined) => {
@@ -285,7 +338,14 @@ async fn handle_play(room: &mut Room, room_id: RoomId, bot: Bot, user: User) -> 
     Ok(())
 }
 
-async fn finish_round(rooms: Rooms, room_id: RoomId, players: Vec<UserId>, bot: Bot) {
+async fn finish_round(
+    rooms: Rooms,
+    room_id: RoomId,
+    players: Vec<UserId>,
+    round_duration: usize,
+    bot: Bot,
+) {
+    let round_duration_in_seconds = round_duration * 60;
     let mut time_alerts = HashMap::new();
     time_alerts.insert(60, "⏱️📢 1 min ❗");
     time_alerts.insert(30, "⏱️📢 30 secs ❗");
@@ -296,7 +356,7 @@ async fn finish_round(rooms: Rooms, room_id: RoomId, players: Vec<UserId>, bot: 
             let bot = bot.clone();
             let players = players.clone();
             async move {
-                tokio::time::sleep(Duration::from_secs(ROUND_DURATION_IN_SECONDS as u64 - time))
+                tokio::time::sleep(Duration::from_secs(round_duration_in_seconds as u64 - time))
                     .await;
                 if let Err(err) = broadcast(players, &bot, message.to_string()).await {
                     log::warn!("Can not broadcast time alert: {}", err);
@@ -305,7 +365,7 @@ async fn finish_round(rooms: Rooms, room_id: RoomId, players: Vec<UserId>, bot: 
         });
     });
 
-    tokio::time::sleep(Duration::from_secs(ROUND_DURATION_IN_SECONDS as u64)).await;
+    tokio::time::sleep(Duration::from_secs(round_duration_in_seconds as u64)).await;
     let Some(room) = rooms.get(
         &room_id) else {
         return;
@@ -390,8 +450,9 @@ async fn handle_start_round(
 
         tokio::task::spawn({
             let players = room.get_all_players().clone();
+            let round_duration = room.round_duration();
             async move {
-                finish_round(rooms, room_id, players, bot).await;
+                finish_round(rooms, room_id, players, round_duration, bot).await;
             }
         });
     }

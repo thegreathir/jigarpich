@@ -8,8 +8,6 @@ use teloxide::types::{ChatId, MessageId, User, UserId};
 
 use crate::words::get_random_word;
 
-const ROUNDS_COUNT: u8 = 7;
-pub const ROUND_DURATION_IN_SECONDS: usize = 120;
 pub const SKIP_COOL_DOWN_IN_SECONDS: usize = 10;
 
 pub fn get_new_id() -> RoomId {
@@ -43,15 +41,19 @@ pub enum GameLogicError {
 pub struct NewRoom {
     players: HashMap<UserId, User>,
     number_of_teams: usize,
+    number_of_rounds: usize,
+    round_duration: usize,
     teams: Vec<HashSet<UserId>>,
 }
 
 impl NewRoom {
-    fn new(number_of_teams: usize) -> Self {
+    fn new(number_of_teams: usize, number_of_rounds: usize, round_duration: usize) -> Self {
         NewRoom {
             players: HashMap::new(),
             teams: vec![HashSet::new(); number_of_teams],
             number_of_teams,
+            number_of_rounds,
+            round_duration,
         }
     }
 
@@ -163,6 +165,8 @@ pub struct PlayingRoom {
     round: u8,
     instant: Instant,
     message_stack: Vec<(ChatId, MessageId)>,
+    number_of_rounds: usize,
+    round_duration: usize,
 }
 
 impl PlayingRoom {
@@ -190,6 +194,8 @@ impl PlayingRoom {
             round: 0,
             instant: Instant::now(),
             message_stack: Vec::new(),
+            number_of_rounds: lobby.number_of_rounds,
+            round_duration: lobby.round_duration,
         }
     }
 
@@ -255,8 +261,12 @@ pub enum RoundStopState {
 }
 
 impl Room {
-    pub fn new(number_of_teams: usize) -> Self {
-        Room::Lobby(NewRoom::new(number_of_teams))
+    pub fn new(number_of_teams: usize, number_of_rounds: usize, round_duration: usize) -> Self {
+        Room::Lobby(NewRoom::new(
+            number_of_teams,
+            number_of_rounds,
+            round_duration,
+        ))
     }
 
     pub fn join(&mut self, user: User) -> Result<(Vec<UserId>, usize), GameLogicError> {
@@ -382,7 +392,7 @@ impl Room {
         let results = playing.get_teams();
 
         playing.round += 1;
-        if playing.round == ROUNDS_COUNT {
+        if playing.round as usize == playing.number_of_rounds {
             playing.message_stack.clear();
             Ok(RoundStopState::GameFinished(results))
         } else {
@@ -391,6 +401,13 @@ impl Room {
                 playing.get_describing_player(),
                 playing.round + 1,
             ))
+        }
+    }
+
+    pub fn round_duration(&self) -> usize {
+        match self {
+            Room::Lobby(lobby) => lobby.round_duration,
+            Room::Playing(playing) => playing.round_duration,
         }
     }
 }
