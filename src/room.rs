@@ -223,9 +223,10 @@ impl PlayingRoom {
             .teams
             .iter()
             .enumerate()
-            .min_by_key(|(_, team)| team.time) else {
-                return "".to_owned();
-            };
+            .min_by_key(|(_, team)| team.time)
+        else {
+            return "".to_owned();
+        };
 
         self.teams
             .iter()

@@ -11,6 +11,7 @@ use room::{
     get_new_id, get_team_emoji, get_teams, GameLogicError, Room, RoomId, SKIP_COOL_DOWN_IN_SECONDS,
 };
 use teloxide::{
+    dispatching::dialogue::InMemStorage,
     prelude::*,
     types::{InlineKeyboardButton, InlineKeyboardMarkup, User},
     update_listeners::webhooks,
@@ -24,7 +25,10 @@ mod callback_query_command;
 
 mod words;
 
+mod dialogue;
+
 type Rooms = Arc<DashMap<RoomId, Mutex<Room>>>;
+type HandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
 #[derive(BotCommands, Clone)]
 #[command(
@@ -36,16 +40,8 @@ enum Command {
     Start,
     #[command(description = "Display this text")]
     Help,
-    #[command(
-        description = "Create new room, usage: `/new [number of teams] \
-                         [number of rounds] [round duration in minutes]`",
-        parse_with = "split"
-    )]
-    New {
-        number_of_teams: usize,
-        number_of_rounds: usize,
-        round_duration: usize,
-    },
+    #[command(description = "Create a new room")]
+    New,
     #[command(description = "Join a room")]
     Join(u32),
 }
@@ -67,18 +63,36 @@ async fn main() {
 
     let command_handler = Update::filter_message()
         .filter_command::<Command>()
+        .enter_dialogue::<Message, InMemStorage<dialogue::State>, dialogue::State>()
         .endpoint(answer_command);
     let cb_query_handler = Update::filter_callback_query().endpoint(handle_cb_query);
 
-    let default_handler = Update::filter_message().endpoint(handle_unknown_message);
+    let dialogue_handler = Update::filter_message()
+        .enter_dialogue::<Message, InMemStorage<dialogue::State>, dialogue::State>()
+        .branch(dptree::case![dialogue::State::Initial].endpoint(handle_unknown_message))
+        .branch(
+            dptree::case![dialogue::State::ReceiveNumberOfTeams]
+                .endpoint(dialogue::get_number_of_teams),
+        )
+        .branch(
+            dptree::case![dialogue::State::ReceiveNumberOfRounds { number_of_teams }]
+                .endpoint(dialogue::get_number_of_rounds),
+        )
+        .branch(
+            dptree::case![dialogue::State::ReceiveRoundDuration {
+                number_of_teams,
+                number_of_rounds
+            }]
+            .endpoint(dialogue::get_round_duration),
+        );
 
     let handler = dptree::entry()
         .branch(cb_query_handler)
         .branch(command_handler)
-        .branch(default_handler);
+        .branch(dialogue_handler);
 
     Dispatcher::builder(bot, handler)
-        .dependencies(dptree::deps![rooms])
+        .dependencies(dptree::deps![rooms, InMemStorage::<dialogue::State>::new()])
         .enable_ctrlc_handler()
         .build()
         .dispatch_with_listener(
@@ -88,7 +102,7 @@ async fn main() {
         .await
 }
 
-async fn handle_unknown_message(bot: Bot, _rooms: Rooms, msg: Message) -> ResponseResult<()> {
+async fn handle_unknown_message(bot: Bot, msg: Message) -> HandlerResult {
     bot.send_message(msg.chat.id, "Unknown message!").await?;
     bot.send_message(msg.chat.id, Command::descriptions().to_string())
         .parse_mode(teloxide::types::ParseMode::MarkdownV2)
@@ -96,28 +110,25 @@ async fn handle_unknown_message(bot: Bot, _rooms: Rooms, msg: Message) -> Respon
     Ok(())
 }
 
-async fn answer_command(bot: Bot, rooms: Rooms, msg: Message, cmd: Command) -> ResponseResult<()> {
+async fn answer_command(
+    bot: Bot,
+    dialogue: dialogue::MyDialogue,
+    rooms: Rooms,
+    msg: Message,
+    cmd: Command,
+) -> HandlerResult {
     match cmd {
         Command::Help | Command::Start => {
             bot.send_message(msg.chat.id, Command::descriptions().to_string())
                 .parse_mode(teloxide::types::ParseMode::MarkdownV2)
                 .await?;
         }
-
-        Command::New {
-            number_of_teams,
-            number_of_rounds,
-            round_duration,
-        } => {
-            handle_new_command(
-                bot,
-                msg,
-                rooms,
-                number_of_teams,
-                number_of_rounds,
-                round_duration,
-            )
-            .await?;
+        Command::New => {
+            dialogue
+                .update(dialogue::State::ReceiveNumberOfTeams)
+                .await?;
+            bot.send_message(msg.chat.id, "How many teams are playing?\n(2 to 7)")
+                .await?;
         }
         Command::Join(room_id) => {
             handle_join_command(bot, msg, rooms, room_id).await?;
@@ -126,7 +137,7 @@ async fn answer_command(bot: Bot, rooms: Rooms, msg: Message, cmd: Command) -> R
     Ok(())
 }
 
-async fn handle_cb_query(bot: Bot, rooms: Rooms, q: CallbackQuery) -> ResponseResult<()> {
+async fn handle_cb_query(bot: Bot, rooms: Rooms, q: CallbackQuery) -> HandlerResult {
     let Some(data) = q.data else {
         return Ok(());
     };
@@ -161,27 +172,6 @@ async fn handle_new_command(
     number_of_rounds: usize,
     round_duration: usize,
 ) -> ResponseResult<()> {
-    if !(2..=7).contains(&number_of_teams) {
-        bot.send_message(msg.chat.id, "Number of teams should be between 2 and 7")
-            .await?;
-        return Ok(());
-    }
-
-    if !(1..=7).contains(&number_of_rounds) {
-        bot.send_message(msg.chat.id, "Number of rounds should be between 1 and 7")
-            .await?;
-        return Ok(());
-    }
-
-    if !(1..=10).contains(&round_duration) {
-        bot.send_message(
-            msg.chat.id,
-            "Round duration should be between 1 minute and 10 minutes",
-        )
-        .await?;
-        return Ok(());
-    }
-
     let new_id = get_new_id();
     rooms.insert(
         new_id,
@@ -366,8 +356,7 @@ async fn finish_round(
     });
 
     tokio::time::sleep(Duration::from_secs(round_duration_in_seconds as u64)).await;
-    let Some(room) = rooms.get(
-        &room_id) else {
+    let Some(room) = rooms.get(&room_id) else {
         return;
     };
 
