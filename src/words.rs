@@ -16,13 +16,16 @@ enum Complexity {
     Hard = 3,
 }
 
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
 pub struct Word {
     pub text: String,
     complexity: Complexity,
 
     #[serde(flatten)]
     taboo_words: HashMap<String, String>,
+
+    #[serde(skip)]
+    selected_taboo_words: Vec<String>,
 }
 
 impl Display for Word {
@@ -33,17 +36,36 @@ impl Display for Word {
 }
 
 impl Word {
-    pub fn get_taboo_words(&self) -> Vec<String> {
+    fn select_taboo_words(other: &Word) -> Word {
         let mut rng = thread_rng();
-        let mut taboo_words: Vec<String> = self.taboo_words.keys().cloned().collect();
+        let mut taboo_words: Vec<String> = other.taboo_words.values().cloned().collect();
         taboo_words.shuffle(&mut rng);
-        taboo_words.into_iter().take(4).collect()
+        let selected_taboo_words = taboo_words.into_iter().take(4).collect();
+        Word {
+            text: other.text.clone(),
+            complexity: other.complexity,
+            taboo_words: other.taboo_words.clone(),
+            selected_taboo_words,
+        }
+    }
+
+    pub fn get_message_string(&self) -> String {
+        let cross = "❌";
+
+        let taboo_words = self
+            .selected_taboo_words
+            .iter()
+            .map(|s| format!("{} {}", cross, s))
+            .collect::<Vec<String>>()
+            .join("\n");
+
+        format!("{}\n\n{}", self.text, taboo_words)
     }
 }
 
 static WORDS: OnceLock<HashMap<Complexity, Vec<Word>>> = OnceLock::new();
 
-pub fn get_random_word() -> &'static Word {
+pub fn get_random_word() -> Word {
     let words = WORDS.get_or_init(|| {
         let file_path = std::env::args()
             .nth(1)
@@ -59,7 +81,7 @@ pub fn get_random_word() -> &'static Word {
     });
 
     let mut rng = thread_rng();
-    match UniformFloat::<f32>::new_inclusive(0.0, 1.0).sample(&mut rng) {
+    let word = match UniformFloat::<f32>::new_inclusive(0.0, 1.0).sample(&mut rng) {
         x if x < 0.7 => words
             .get(&Complexity::Easy)
             .expect("No easy word")
@@ -75,5 +97,7 @@ pub fn get_random_word() -> &'static Word {
             .expect("No hard word")
             .choose(&mut rng)
             .unwrap(),
-    }
+    };
+
+    Word::select_taboo_words(word)
 }
