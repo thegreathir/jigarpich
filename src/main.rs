@@ -372,7 +372,7 @@ async fn finish_round(
     };
 
     match round_stop_state {
-        room::RoundStopState::RoundFinished(results, describing_player, round) => {
+        room::RoundStopState::RoundFinished(results, describing_player, round, total_rounds) => {
             if let Err(err) = broadcast(room.get_all_players(), &bot, results).await {
                 log::warn!("Can not broadcast results: {}", err);
             }
@@ -381,9 +381,10 @@ async fn finish_round(
                 room.get_all_players(),
                 &bot,
                 format!(
-                    "Round has finished! {} should start round {}!",
+                    "Round has finished! {} should start round {}/{}!",
                     describing_player.full_name(),
-                    round
+                    round,
+                    total_rounds
                 ),
             )
             .await

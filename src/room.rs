@@ -179,7 +179,7 @@ impl PlayingRoom {
             .map(|(team_id, team)| {
                 let team: Vec<_> = team.into_iter().collect();
                 PlayingTeam {
-                    first: lobby.players.get(team.get(0).unwrap()).unwrap().to_owned(),
+                    first: lobby.players.get(team.first().unwrap()).unwrap().to_owned(),
                     second: lobby.players.get(team.get(1).unwrap()).unwrap().to_owned(),
                     time: Duration::from_secs(0),
                     turn: 0,
@@ -257,7 +257,7 @@ pub struct WordGuessTry {
 }
 
 pub enum RoundStopState {
-    RoundFinished(String, User, u8),
+    RoundFinished(String, User, u8, usize),
     GameFinished(String),
 }
 
@@ -401,6 +401,7 @@ impl Room {
                 results,
                 playing.get_describing_player(),
                 playing.round + 1,
+                playing.number_of_rounds,
             ))
         }
     }
