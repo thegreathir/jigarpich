@@ -17,4 +17,5 @@ sscanf = "0.4.1"
 teloxide = { version = "0.12.2", features = ["macros", "full"] }
 tokio = { version = "1.29.1", features = ["full"] }
 openssl = { version = "0.10", features = ["vendored"] }
+serde_json = "1.0.120"
 

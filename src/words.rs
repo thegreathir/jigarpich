@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs::File, sync::OnceLock};
+use std::{collections::HashMap, fmt::Display, fs::File, sync::OnceLock};
 
 use rand::{
     distributions::uniform::{UniformFloat, UniformSampler},
@@ -6,8 +6,9 @@ use rand::{
     thread_rng,
 };
 use serde_repr::Deserialize_repr;
+use serde_repr::Serialize_repr;
 
-#[derive(Deserialize_repr, Debug, Eq, PartialEq, Hash, Clone, Copy)]
+#[derive(Deserialize_repr, Serialize_repr, Debug, Eq, PartialEq, Hash, Clone, Copy)]
 #[repr(u8)]
 enum Complexity {
     Easy = 1,
@@ -15,10 +16,29 @@ enum Complexity {
     Hard = 3,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct Word {
     pub text: String,
     complexity: Complexity,
+
+    #[serde(flatten)]
+    taboo_words: HashMap<String, String>,
+}
+
+impl Display for Word {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let json = serde_json::to_string(self).unwrap();
+        write!(f, "{}", json)
+    }
+}
+
+impl Word {
+    pub fn get_taboo_words(&self) -> Vec<String> {
+        let mut rng = thread_rng();
+        let mut taboo_words: Vec<String> = self.taboo_words.keys().cloned().collect();
+        taboo_words.shuffle(&mut rng);
+        taboo_words.into_iter().take(4).collect()
+    }
 }
 
 static WORDS: OnceLock<HashMap<Complexity, Vec<Word>>> = OnceLock::new();
