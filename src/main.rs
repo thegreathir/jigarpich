@@ -470,7 +470,10 @@ async fn send_new_word(
 ) -> ResponseResult<()> {
     clear_last_buttons(&bot, room).await?;
     let sent_message = bot
-        .send_message(word_guess_try.describing.id, word_guess_try.word.get_message_string())
+        .send_message(
+            word_guess_try.describing.id,
+            word_guess_try.word.get_message_string(),
+        )
         .reply_markup(InlineKeyboardMarkup::new([vec![
             InlineKeyboardButton::callback(
                 "✅",
