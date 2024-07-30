@@ -6,7 +6,7 @@ use std::{
 use rand::{seq::SliceRandom, Rng};
 use teloxide::types::{ChatId, MessageId, User, UserId};
 
-use crate::words::get_random_word;
+use crate::words::{get_random_word, Word};
 
 pub const SKIP_COOL_DOWN_IN_SECONDS: usize = 10;
 
@@ -251,7 +251,7 @@ pub enum Room {
 }
 
 pub struct WordGuessTry {
-    pub word: String,
+    pub word: Word,
     pub describing: User,
     pub guessing: User,
 }
@@ -342,7 +342,7 @@ impl Room {
         playing.instant = Instant::now();
 
         Ok(WordGuessTry {
-            word: get_random_word().text.clone(),
+            word: get_random_word(),
             describing: playing.get_describing_player(),
             guessing: playing.get_guessing_player(),
         })
@@ -355,7 +355,7 @@ impl Room {
         playing.instant = Instant::now();
 
         Ok(WordGuessTry {
-            word: get_random_word().text.clone(),
+            word: get_random_word(),
             describing: playing.get_describing_player(),
             guessing: playing.get_guessing_player(),
         })
@@ -365,7 +365,7 @@ impl Room {
         let playing = self.get_playing()?;
 
         Ok(WordGuessTry {
-            word: get_random_word().text.clone(),
+            word: get_random_word(),
             describing: playing.get_describing_player(),
             guessing: playing.get_guessing_player(),
         })
