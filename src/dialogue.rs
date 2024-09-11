@@ -115,7 +115,7 @@ pub async fn get_round_duration(
         })
         .await?;
 
-    bot.send_message(msg.chat.id, "Should add taboo words? (\"Yes\" or \"No\")")
+    bot.send_message(msg.chat.id, "Include taboo words? (\"Yes\" or \"No\")")
         .await?;
 
     Ok(())
