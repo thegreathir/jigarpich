@@ -62,7 +62,7 @@ impl Word {
 
             format!("{}\n\n{}", self.text, taboo_words)
         } else {
-            format!("{}", self.text)
+            self.text.to_string()
         }
     }
 }
