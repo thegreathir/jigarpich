@@ -115,7 +115,7 @@ pub async fn get_round_duration(
         })
         .await?;
 
-    bot.send_message(msg.chat.id, "Should add taboo words? (\"yes\" or \"no\")")
+    bot.send_message(msg.chat.id, "Should add taboo words? (\"Yes\" or \"No\")")
         .await?;
 
     Ok(())
@@ -127,15 +127,15 @@ pub async fn get_should_use_taboo_words(
     rooms: crate::Rooms,
     msg: Message,
 ) -> HandlerResult {
-    let wrong_input_error = "Please send \"yes\" or \"no\"";
+    let wrong_input_error = "Please send \"Yes\" or \"No\"";
     let Some(text) = msg.text() else {
         bot.send_message(msg.chat.id, wrong_input_error).await?;
         return Ok(());
     };
 
     let use_taboo_words = match text {
-        "yes" => true,
-        "no" => false,
+        "yes" | "Yes" | "y" | "Y" => true,
+        "no" | "No" | "n" | "N" => false,
         _ => {
             bot.send_message(msg.chat.id, wrong_input_error).await?;
             return Ok(());
