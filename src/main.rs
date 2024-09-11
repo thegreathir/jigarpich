@@ -7,6 +7,7 @@ use std::{
 
 use callback_query_command::{parse_command, serialize_command, CbQueryCommand};
 use dashmap::DashMap;
+use dialogue::get_should_use_taboo_words;
 use room::{
     get_new_id, get_team_emoji, get_teams, GameLogicError, Room, RoomId, SKIP_COOL_DOWN_IN_SECONDS,
 };
@@ -84,6 +85,14 @@ async fn main() {
                 number_of_rounds
             }]
             .endpoint(dialogue::get_round_duration),
+        )
+        .branch(
+            dptree::case![dialogue::State::ReceiveTabooWords {
+                number_of_teams,
+                number_of_rounds,
+                round_duration
+            }]
+            .endpoint(get_should_use_taboo_words),
         );
 
     let handler = dptree::entry()
@@ -171,11 +180,17 @@ async fn handle_new_command(
     number_of_teams: usize,
     number_of_rounds: usize,
     round_duration: usize,
+    use_taboo_words: bool,
 ) -> ResponseResult<()> {
     let new_id = get_new_id();
     rooms.insert(
         new_id,
-        Mutex::new(Room::new(number_of_teams, number_of_rounds, round_duration)),
+        Mutex::new(Room::new(
+            number_of_teams,
+            number_of_rounds,
+            round_duration,
+            use_taboo_words,
+        )),
     );
     bot.send_message(
         msg.chat.id,
@@ -472,7 +487,9 @@ async fn send_new_word(
     let sent_message = bot
         .send_message(
             word_guess_try.describing.id,
-            word_guess_try.word.get_message_string(),
+            word_guess_try
+                .word
+                .get_message_string(room.use_taboo_words()),
         )
         .reply_markup(InlineKeyboardMarkup::new([vec![
             InlineKeyboardButton::callback(
@@ -500,7 +517,9 @@ async fn send_new_word(
             "{} -> {}\n\t{}",
             word_guess_try.describing.full_name(),
             word_guess_try.guessing.full_name(),
-            word_guess_try.word.get_message_string()
+            word_guess_try
+                .word
+                .get_message_string(room.use_taboo_words())
         ),
     )
     .await?;

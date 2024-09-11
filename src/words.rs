@@ -49,17 +49,21 @@ impl Word {
         }
     }
 
-    pub fn get_message_string(&self) -> String {
+    pub fn get_message_string(&self, use_taboo_words: bool) -> String {
         let cross = "❌";
 
-        let taboo_words = self
-            .selected_taboo_words
-            .iter()
-            .map(|s| format!("{} {}", cross, s))
-            .collect::<Vec<String>>()
-            .join("\n");
+        if use_taboo_words {
+            let taboo_words = self
+                .selected_taboo_words
+                .iter()
+                .map(|s| format!("{} {}", cross, s))
+                .collect::<Vec<String>>()
+                .join("\n");
 
-        format!("{}\n\n{}", self.text, taboo_words)
+            format!("{}\n\n{}", self.text, taboo_words)
+        } else {
+            format!("{}", self.text)
+        }
     }
 }
 

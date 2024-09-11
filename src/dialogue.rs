@@ -14,6 +14,11 @@ pub enum State {
         number_of_teams: u8,
         number_of_rounds: u8,
     },
+    ReceiveTabooWords {
+        number_of_teams: u8,
+        number_of_rounds: u8,
+        round_duration: u8,
+    },
 }
 
 pub type MyDialogue = Dialogue<State, InMemStorage<State>>;
@@ -71,18 +76,20 @@ pub async fn get_number_of_rounds(
             number_of_rounds,
         })
         .await?;
+
     bot.send_message(
         msg.chat.id,
         "How long is each round?\n(in minutes up to 10)",
     )
     .await?;
+
     Ok(())
 }
 
 pub async fn get_round_duration(
     bot: Bot,
+    dialogue: MyDialogue,
     (number_of_teams, number_of_rounds): (u8, u8),
-    rooms: crate::Rooms,
     msg: Message,
 ) -> HandlerResult {
     let Some(round_duration) = parse_number(&msg) else {
@@ -100,11 +107,46 @@ pub async fn get_round_duration(
         return Ok(());
     }
 
+    dialogue
+        .update(State::ReceiveTabooWords {
+            number_of_teams,
+            number_of_rounds,
+            round_duration,
+        })
+        .await?;
+
+    bot.send_message(msg.chat.id, "Should add taboo words? (\"yes\" or \"no\")")
+        .await?;
+
+    Ok(())
+}
+
+pub async fn get_should_use_taboo_words(
+    bot: Bot,
+    (number_of_teams, number_of_rounds, round_duration): (u8, u8, u8),
+    rooms: crate::Rooms,
+    msg: Message,
+) -> HandlerResult {
+    let wrong_input_error = "Please send \"yes\" or \"no\"";
+    let Some(text) = msg.text() else {
+        bot.send_message(msg.chat.id, wrong_input_error).await?;
+        return Ok(());
+    };
+
+    let use_taboo_words = match text {
+        "yes" => true,
+        "no" => false,
+        _ => {
+            bot.send_message(msg.chat.id, wrong_input_error).await?;
+            return Ok(());
+        }
+    };
+
     bot.send_message(
         msg.chat.id,
         format!(
-            "You are going to play {} rounds with {} teams, each round will last {} minutes.",
-            number_of_rounds, number_of_teams, round_duration
+            "You are going to play {} rounds with {} teams, each round will last {} minutes.\nTaboo words are {}.",
+            number_of_rounds, number_of_teams, round_duration, if use_taboo_words { "enabled" } else { "disabled" }
         ),
     )
     .await?;
@@ -116,6 +158,7 @@ pub async fn get_round_duration(
         number_of_teams as usize,
         number_of_rounds as usize,
         round_duration as usize,
+        use_taboo_words,
     )
     .await?;
 

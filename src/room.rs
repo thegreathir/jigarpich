@@ -43,17 +43,24 @@ pub struct NewRoom {
     number_of_teams: usize,
     number_of_rounds: usize,
     round_duration: usize,
+    use_taboo_words: bool,
     teams: Vec<HashSet<UserId>>,
 }
 
 impl NewRoom {
-    fn new(number_of_teams: usize, number_of_rounds: usize, round_duration: usize) -> Self {
+    fn new(
+        number_of_teams: usize,
+        number_of_rounds: usize,
+        round_duration: usize,
+        use_taboo_words: bool,
+    ) -> Self {
         NewRoom {
             players: HashMap::new(),
             teams: vec![HashSet::new(); number_of_teams],
             number_of_teams,
             number_of_rounds,
             round_duration,
+            use_taboo_words,
         }
     }
 
@@ -167,6 +174,7 @@ pub struct PlayingRoom {
     message_stack: Vec<(ChatId, MessageId)>,
     number_of_rounds: usize,
     round_duration: usize,
+    use_taboo_words: bool,
 }
 
 impl PlayingRoom {
@@ -196,6 +204,7 @@ impl PlayingRoom {
             message_stack: Vec::new(),
             number_of_rounds: lobby.number_of_rounds,
             round_duration: lobby.round_duration,
+            use_taboo_words: lobby.use_taboo_words,
         }
     }
 
@@ -262,11 +271,17 @@ pub enum RoundStopState {
 }
 
 impl Room {
-    pub fn new(number_of_teams: usize, number_of_rounds: usize, round_duration: usize) -> Self {
+    pub fn new(
+        number_of_teams: usize,
+        number_of_rounds: usize,
+        round_duration: usize,
+        use_taboo_words: bool,
+    ) -> Self {
         Room::Lobby(NewRoom::new(
             number_of_teams,
             number_of_rounds,
             round_duration,
+            use_taboo_words,
         ))
     }
 
@@ -410,6 +425,13 @@ impl Room {
         match self {
             Room::Lobby(lobby) => lobby.round_duration,
             Room::Playing(playing) => playing.round_duration,
+        }
+    }
+
+    pub fn use_taboo_words(&self) -> bool {
+        match self {
+            Room::Lobby(lobby) => lobby.use_taboo_words,
+            Room::Playing(playing) => playing.use_taboo_words,
         }
     }
 }
