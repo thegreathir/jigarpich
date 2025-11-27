@@ -175,6 +175,7 @@ pub struct PlayingRoom {
     number_of_rounds: usize,
     round_duration: usize,
     use_taboo_words: bool,
+    words: HashSet<String>,
 }
 
 impl PlayingRoom {
@@ -205,6 +206,7 @@ impl PlayingRoom {
             number_of_rounds: lobby.number_of_rounds,
             round_duration: lobby.round_duration,
             use_taboo_words: lobby.use_taboo_words,
+            words: HashSet::new(),
         }
     }
 
@@ -251,6 +253,16 @@ impl PlayingRoom {
                 );
                 res
             })
+    }
+
+    pub fn get_new_word(&mut self) -> Word {
+        loop {
+            let word = get_random_word();
+
+            if self.words.insert(word.text.clone()) {
+                return word;
+            }
+        }
     }
 }
 
@@ -357,7 +369,7 @@ impl Room {
         playing.instant = Instant::now();
 
         Ok(WordGuessTry {
-            word: get_random_word(),
+            word: playing.get_new_word(),
             describing: playing.get_describing_player(),
             guessing: playing.get_guessing_player(),
         })
@@ -370,17 +382,17 @@ impl Room {
         playing.instant = Instant::now();
 
         Ok(WordGuessTry {
-            word: get_random_word(),
+            word: playing.get_new_word(),
             describing: playing.get_describing_player(),
             guessing: playing.get_guessing_player(),
         })
     }
 
-    pub fn skip(&self) -> Result<WordGuessTry, GameLogicError> {
-        let playing = self.get_playing()?;
+    pub fn skip(&mut self) -> Result<WordGuessTry, GameLogicError> {
+        let playing = self.get_playing_mut()?;
 
         Ok(WordGuessTry {
-            word: get_random_word(),
+            word: playing.get_new_word(),
             describing: playing.get_describing_player(),
             guessing: playing.get_guessing_player(),
         })
